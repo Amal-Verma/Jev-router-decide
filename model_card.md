@@ -10,7 +10,7 @@ from `cross-encoder/ms-marco-MiniLM-L6-v2`, Apache-2.0) feeds a shared mixture
 of 4 expert MLPs. A soft gate conditioned on the pooled text and a task
 embedding mixes the experts, and one Linear head per decision sits on top.
 Each decision gets its own input framing: route reads (subject, body);
-approve reads ("tier plan, $amount. subject", body) plus 62 structured
+approve reads ("tier plan, $amount. subject", body) plus 75 structured
 tier/amount/red-flag features; grounded reads (kb_article, draft_reply) as a
 cross-encoded pair.
 
