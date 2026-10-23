@@ -100,6 +100,8 @@ LightGBM (MIT).
 | shared encoder, H768 NLI backbone | 73.65 (more accurate grounding, too slow) |
 | **shared encoder + MoE, H384 (served)** | **83.76** |
 
+Cross-validated over 4 folds of train+dev (2,000 unseen rows each): **82.44 ± 1.30** (folds 80.3 to 83.9), so the dev number is representative.
+
 Mean p95 is about 24 ms per call. Full numbers are in `results.json`; accuracy,
 calibration and failure modes are in `model_card.md`.
 

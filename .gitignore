@@ -25,3 +25,4 @@ docs/report/*.fls
 docs/report/*.fdb_latexmk
 docs/report/pg*.png
 kaggle/cv_bundle/
+kaggle/cv_logits/

@@ -72,3 +72,13 @@ probabilities.
 - The data is synthetic and templated. Real tickets with unseen phrasing, other
   currencies or other tiers will degrade it, and the amount features assume
   USD-scale values.
+
+**Consistency check (4-fold cross-validation).** Train and dev were pooled
+(8,000 rows) and split into 4 folds. Each fold trained on 6,000 rows
+(1,000 of them held out for calibration and policy) and was scored on its
+2,000 unseen rows with the self-check metric code (`cv_analyze.py`; latency
+held at full marks). Served configuration, 5 epochs: **82.44 ± 1.30**
+(folds 82.88 / 82.69 / 83.87 / 80.34). Per decision: route F1 0.940 ± 0.005,
+approve cost 0.185 ± 0.021, grounded F1 0.991 ± 0.002, mean ECE 0.023 ± 0.003.
+Most of the spread comes from approval cost, the noisiest label. The dev result
+(83.4 offline) sits inside the fold range.
