@@ -14,6 +14,10 @@ approve reads ("tier plan, $amount. subject", body) plus 75 structured
 tier/amount/red-flag features; grounded reads (kb_article, draft_reply) as a
 cross-encoded pair.
 
+**Size.** About 23.07 M parameters, 99.99% shared by all three decisions; only the
+final Linear heads (route 1,285, approve 257, grounded 257 weights) are
+decision-specific. That is about 18x smaller than the 421 M Laya model.
+
 **Training data.** Only `train.jsonl` (6,500 rows): 5,500 for training and
 1,000 held out for calibration and the abstention thresholds. **The served model
 never saw `dev.jsonl`,** so the dev scores below are honest. Training ran for 5

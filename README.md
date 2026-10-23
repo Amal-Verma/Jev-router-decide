@@ -55,6 +55,21 @@ training pipeline, approve and abstention logic) are in
   threshold with red-flag overrides), and grounding is a cross-encoded
   premise/hypothesis pair, which is why we start from an encoder pre-trained
   as a cross-encoder over text pairs.
+- **Parameter count** (from `artifacts/decide.onnx`): only about 1,800 of 23.07 M
+  weights are decision-specific.
+
+| Component | Parameters | Shared by all decisions? |
+|---|---|---|
+| MiniLM encoder (6 layers, 384 wide) | 22,565,376 | yes |
+| 4 expert MLPs (mixture of experts) | 492,544 | yes |
+| tabular-feature projection | 5,056 | yes |
+| gate | 1,668 | yes |
+| task embedding (3 x 32) | 96 | yes (one row per decision) |
+| route head | 1,285 | route only |
+| approve head | 257 | approve only |
+| grounded head | 257 | grounded only |
+| **total** | **about 23.07 M** | **99.99% shared** |
+
 - **Adding a fourth decision** is one new task-embedding row, one Linear head
   and its training examples. The encoder and experts are reused, and inference cost
   does not change.
