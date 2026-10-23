@@ -104,6 +104,13 @@ perfectly on dev (F1 1.00 vs 0.99) but costs about 1.7x the latency, and
 latency is 20% of the score with full marks only at 25 ms. A 0.01 F1 gain on
 one decision does not pay for that.
 
+## Docs
+
+- `docs/API.md`: request and response reference
+- `docs/TRAINING.md`: how to retrain (Kaggle GPU) and rebuild the policy
+- `docs/DEMO.md`: three-minute demo script, including a refusal case
+- `docs/PLAN.md`: plan, status and untried ideas
+
 ## Layout
 
 ```
