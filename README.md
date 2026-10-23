@@ -61,13 +61,14 @@ training pipeline, approve and abstention logic) are in
 
 ## Calibration and abstention
 
-- Training holds out 1,000 train records. One temperature per head is fitted on
-  them by NLL (Guo et al. 2017). The dev split is never used for fitting.
+- Training holds out 1,000 of its labelled records. One temperature per head is
+  fitted on them by NLL (Guo et al. 2017).
 - `approve` commits to "yes" only when `p_true > 0.75`: a wrong approval costs
   3x a wrong hold, so the Bayes threshold is 3/(3+1).
-- Each decision abstains on its least-confident ~18% (thresholds in
-  `artifacts/policy.json`, chosen on the holdout by `tune_policy.py`), so the
-  declared coverage sits just above the 80% target.
+- Route and grounded abstain on their least-confident ~15%; approve abstains in
+  the lopsided band 0.15 < p < 0.79 (wrong approvals cost 3x). Thresholds are in
+  `artifacts/policy.json` (chosen by `tune_policy.py`), so declared coverage
+  sits above the 80% target.
 
 ## Training
 
@@ -76,6 +77,10 @@ GPU training ran on a Kaggle T4 (`kaggle/decide_train.ipynb` runs
 AdamW + one-cycle schedule, fp16. It exports to ONNX and applies dynamic int8
 quantisation. Then `python tune_policy.py artifacts` writes the abstention
 policy.
+
+Model choices (epochs, backbone, policy) were made by 4-fold cross-validation
+over train + dev (`kaggle/decide_cv.ipynb`, `cv_analyze.py`). The served
+weights were then retrained on all 8,000 labelled rows (`--train_file`).
 
 `train_baseline.py` is the gate-1 classical baseline (TF-IDF + logistic
 regression / LightGBM). `model.py` falls back to it if `artifacts/decide.onnx`
@@ -98,11 +103,12 @@ LightGBM (MIT).
 |---|---|
 | classical baseline (`train_baseline.py`) | 78.45 |
 | shared encoder, H768 NLI backbone | 73.65 (more accurate grounding, too slow) |
-| **shared encoder + MoE, H384 (served)** | **83.76** |
+| shared encoder + MoE, H384, trained on train only | 83.76 |
+| **served: same, retrained on train + dev** | **82.44 ± 1.30** cross-validated (dev 87.55 is optimistic, dev was trained on) |
 
 Cross-validated over 4 folds of train+dev (2,000 unseen rows each): **82.44 ± 1.30** (folds 80.3 to 83.9), so the dev number is representative.
 
-Mean p95 is about 24 ms per call. Full numbers are in `results.json`; accuracy,
+Mean p95 is about 11 ms per call on a quiet machine. Full numbers are in `results.json`; accuracy,
 calibration and failure modes are in `model_card.md`.
 
 ## One trade-off we made

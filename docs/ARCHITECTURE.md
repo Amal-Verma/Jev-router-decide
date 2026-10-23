@@ -65,15 +65,15 @@ flowchart TD
     S["calibrated p_true"] --> T{"p_true > 0.75?<br/>(3:1 cost)"}
     T -->|yes| Y["value = true (auto-approve)"]
     T -->|no| N["value = false (hold)"]
-    S --> C{"max(p, 1-p) < 0.81?"}
+    S --> C{"0.15 < p < 0.79?<br/>(lopsided: wrong approvals cost 3x)"}
     C -->|yes| AB["abstain = true<br/>(send to a human)"]
     C -->|no| OK["abstain = false"]
 ```
 
 The thresholds come from `artifacts/policy.json`, set on the training
 holdout so about 85% of requests are answered (target 80%). `route` abstains
-when its top-queue probability is under 0.90; `grounded` when
-max(p, 1-p) is under 0.975.
+when its top-queue probability is under 0.91; `grounded` when
+max(p, 1-p) is under 0.99.
 
 What the approve head learned from the labels:
 
@@ -90,13 +90,12 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    D["train.jsonl<br/>6,500"] --> SP{"split"}
-    SP -->|5,500| TR["multi-task fine-tune<br/>Kaggle T4, 5 epochs,<br/>one task per batch"]
+    D["train + dev<br/>8,000"] --> SP{"split"}
+    SP -->|7,000| TR["multi-task fine-tune<br/>Kaggle T4, 5 epochs,<br/>one task per batch"]
     SP -->|1,000 holdout| CAL["temperature per head<br/>+ abstention thresholds"]
     TR --> CAL
     TR --> EX["export ONNX<br/>+ int8 dynamic quantisation"]
     CAL --> ART["artifacts/<br/>decide.onnx 24 MB<br/>calibration.json, policy.json"]
     EX --> ART
-    DEV["dev.jsonl 1,500"] -.->|"reporting and backbone choice only"| SC["selfcheck.py<br/>83.76"]
-    ART --> SC
+    CV["4-fold cross-validation"] -.->|"chose epochs, backbone, policy"| TR
 ```

@@ -34,7 +34,7 @@ labelled data the answer was "hold".)
 We trained two backbones on the same multi-task setup. The larger H768 NLI
 encoder grounds perfectly on dev (F1 1.00 vs 0.99) but is about 1.7x slower.
 Latency is 20% of the score, and full marks need p95 of 25 ms or less, so we
-serve the H384 model: 83.76 total vs 73.65.
+serve the H384 model: 83.76 total vs 73.65 (same data). The final model is retrained on train + dev: 82.4 ± 1.3 cross-validated.
 
 Backup line if asked about sharing: every request runs the same encoder and
 the same 4 mixture-of-experts MLPs; only the final Linear layer differs per

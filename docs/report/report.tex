@@ -51,9 +51,10 @@ attached knowledge-base article). One multi-task model answers all three: a
 fine-tuned MiniLM cross-encoder shared by every decision, a shared
 mixture of experts, and one linear head per decision. It is served as a single
 24\,MB int8 ONNX graph on CPU, with probabilities calibrated per head and an
-abstention policy set on held-out data. On the public dev split it scores
-\textbf{83.76/100} with the official self-check (classical baseline 78.45), with a
-mean per-decision p95 latency of about 24\,ms, measured one request at a time.
+abstention policy set on held-out data. Four-fold cross-validation over all
+8{,}000 labelled rows gives \textbf{82.4\,$\pm$\,1.3/100} on unseen data under
+the official scoring code (classical baseline 78.45). Mean per-decision p95
+latency is about 11\,ms, measured one request at a time.
 \end{abstract}
 
 \section{The problem, and what each question compares}
@@ -166,8 +167,8 @@ indicators. A text encoder alone learns sharp numeric thresholds poorly.
 \begin{figure}[h]
 \centering
 \begin{tikzpicture}[node distance=6mm and 8mm]
-  \node[box] (d) {train.jsonl\\6{,}500};
-  \node[box, right=of d, yshift=8mm] (tr) {5{,}500\\multi-task fine-tune\\Kaggle T4, 5 epochs};
+  \node[box] (d) {train + dev\\8{,}000};
+  \node[box, right=of d, yshift=8mm] (tr) {7{,}000\\multi-task fine-tune\\Kaggle T4, 5 epochs};
   \node[box, right=of d, yshift=-10mm] (ho) {1{,}000 holdout};
   \node[box, right=of tr] (ex) {ONNX export\\int8 dynamic quant.};
   \node[box, right=of ho] (cal) {temperature / head\\abstain thresholds};
@@ -177,8 +178,8 @@ indicators. A text encoder alone learns sharp numeric thresholds poorly.
   \draw[arr] (tr) -- (ex); \draw[arr] (ho) -- (cal); \draw[arr] (tr) -- (cal);
   \draw[arr] (ex) -- (art); \draw[arr] (cal) -- (art); \draw[arr] (art) -- (sc);
 \end{tikzpicture}
-\caption{Pipeline. The dev split is used only for reporting and for choosing the
-backbone, never for fitting.}
+\caption{Final pipeline. Epochs, backbone and policy were chosen beforehand by
+4-fold cross-validation (Section~\ref{sec:cv}).}
 \end{figure}
 
 \paragraph{Training.} The three decisions are trained jointly, with one decision per batch
@@ -187,20 +188,51 @@ with a one-cycle schedule ($4\times10^{-5}$ encoder, $10\times$ for the new
 layers), fp16, batch size 32 and max length 192. Five epochs take about 3 minutes on a T4.
 
 \paragraph{Calibration.} One temperature per head, fitted by negative
-log-likelihood on the holdout \cite{guo2017}: $T_\text{route}=1.18$,
-$T_\text{approve}=1.01$, $T_\text{grounded}=1.23$.
+log-likelihood on the holdout \cite{guo2017}: $T_\text{route}=1.10$,
+$T_\text{approve}=0.96$, $T_\text{grounded}=1.06$.
 
 \paragraph{Committed value.} Approve returns ``yes'' only when $p>0.75$, the
 Bayes threshold for a 3:1 cost ratio. Grounded uses $p>0.5$; route uses the arg-max.
 
 \paragraph{Abstention.} The self-check scales quality down below 80\% coverage
 and charges nothing above it, so each decision abstains on roughly its
-least-confident 15\% (thresholds from holdout quantiles, targeting 85\% for a
-margin). Route abstains when the top probability is below 0.90, approve when
-$\max(p,1-p)<0.81$, grounded when $\max(p,1-p)<0.975$. Abstained cases still
-return calibrated probabilities.
+least-confident 15\% (holdout quantiles, targeting 85\% for a margin): route
+when the top probability is below 0.91, grounded when $\max(p,1-p)<0.99$.
+Approve uses a \emph{lopsided} band, abstaining when $0.15<p<0.79$: a wrong
+approval costs $3\times$ a wrong hold, so confident-looking approvals are the
+expensive mistakes. The band was chosen on 8{,}000 out-of-fold predictions.
+Abstained cases still return calibrated probabilities.
 
-\section{Results on the public dev split}
+\section{Results}
+\subsection{Cross-validation: the honest estimate}\label{sec:cv}
+
+Train and dev were pooled (8{,}000 rows) and split into 4 folds. Each fold model
+trained on 6{,}000 rows (1{,}000 of them held out for calibration and policy) and
+was scored on its 2{,}000 unseen rows with the self-check's metric code.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lc}
+\toprule
+ & mean $\pm$ std over 4 folds \\
+\midrule
+total (latency at full marks) & \textbf{82.44 $\pm$ 1.30} (82.9 / 82.7 / 83.9 / 80.3) \\
+route macro-F1 & 0.940 $\pm$ 0.005 \\
+approve cost (3:1) & 0.185 $\pm$ 0.021 \\
+grounded macro-F1 & 0.991 $\pm$ 0.002 \\
+mean ECE & 0.023 $\pm$ 0.003 \\
+\bottomrule
+\end{tabular}
+\caption{Four-fold cross-validation. Epoch 5 beat epochs 2--4, a tuned approve
+threshold gained nothing over 0.75, and a residual analysis of the 8{,}000
+out-of-fold approve predictions found no learnable pattern left.}
+\end{table}
+
+The served model is the same pipeline retrained on all 8{,}000 rows. Its
+self-check score on dev (87.55) is optimistic, because dev was in its training
+data.
+
+\subsection{Public dev split, model trained on train only}
 
 All numbers come from the official \texttt{selfcheck.py} over the full dev set
 (1{,}500 records $\times$ 3 decisions, one request at a time, after warm-up).
@@ -248,7 +280,8 @@ grounded coverage fell to 0.75, below the 80\% target.}
 
 Latency was measured on a laptop i5-1135G7 (8 threads) that was also running
 unrelated heavy jobs (load average about 13), with ONNX Runtime pinned to 4
-intra-op threads. An idle 4-core machine should be no slower.
+intra-op threads. Re-measured on the quiet machine, the final model's p95 is
+9.7 / 10.5 / 12.2\,ms (route / approve / grounded).
 
 \section{The trade-off: H384 over H768}
 
