@@ -34,6 +34,9 @@ def main(art="artifacts"):
         "approve_min_conf": float(np.quantile(np.maximum(pa, 1 - pa), q)),
         "grounded_min_conf": float(np.quantile(np.maximum(pg, 1 - pg), q)),
         "approve_threshold": 0.75,
+        # Asymmetric approve band, chosen on 8,000 out-of-fold predictions
+        # (cv_analyze / docs/report): cuts expected 3:1 cost on answered cases.
+        "approve_abstain_band": [0.15, 0.79],
         "coverage_target": COVERAGE,
     }
     with open(os.path.join(art, "policy.json"), "w") as fh:

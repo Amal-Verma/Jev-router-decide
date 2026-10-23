@@ -16,19 +16,19 @@
   },
   "latency_ms": {
     "p50": {
-      "route": 10.569967000265024,
-      "approve": 11.734653499843262,
-      "grounded": 15.123317999496066
+      "route": 7.626440999956685,
+      "approve": 8.646436001072288,
+      "grounded": 10.668769498806796
     },
     "p95": {
-      "route": 21.187142401322486,
-      "approve": 23.247031451228395,
-      "grounded": 28.399768351300732
+      "route": 11.252729300395002,
+      "approve": 12.297201500405208,
+      "grounded": 13.783851996959129
     },
-    "mean_p95": 24.277980734617206,
-    "overall_p50": 12.261457999557024,
-    "overall_p95": 25.19621275096143,
-    "server_self_reported_p95": 22.221500000000006,
+    "mean_p95": 12.44459426591978,
+    "overall_p50": 9.010070498334244,
+    "overall_p95": 12.864599450767855,
+    "server_self_reported_p95": 11.1911,
     "reconnects": 0
   },
   "quality": {
@@ -36,17 +36,17 @@
     "route_acc": 0.8906666666666667,
     "coverage": {
       "route": 0.8286666666666667,
-      "approve": 0.8453333333333334,
+      "approve": 0.862,
       "grounded": 0.84
     },
-    "approve_cost": 0.1837539432176656,
-    "approve_macro_f1": 0.931646557810175,
+    "approve_cost": 0.1902552204176334,
+    "approve_macro_f1": 0.9330061731136474,
     "grounded_macro_f1": 0.991358024691358,
     "fp_cost": 3.0,
     "trivial": {
       "route_macro_f1": 0.0841168996188056,
-      "approve_cost_always_hold": 0.37066246056782337,
-      "approve_cost_always_approve": 1.8880126182965298,
+      "approve_cost_always_hold": 0.382830626450116,
+      "approve_cost_always_approve": 1.851508120649652,
       "grounded_macro_f1": 0.38983050847457623
     }
   },
@@ -74,15 +74,15 @@
     },
     "declared_coverage": {
       "route": 0.8286666666666667,
-      "approve": 0.8453333333333334,
+      "approve": 0.862,
       "grounded": 0.84
     }
   },
   "score_parts": {
-    "quality": 0.8496754287773277,
+    "quality": 0.8493691747476694,
     "calibration": 0.8562581875210009,
     "latency": 1.0,
     "abstention": 0.5580002861625091
   },
-  "score": 83.76347613155576
+  "score": 83.75122597036943
 }

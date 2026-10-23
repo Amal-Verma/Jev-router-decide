@@ -45,7 +45,12 @@ class DecisionModel:
     def approve(self, state: Dict[str, Any]) -> Tuple[bool, float, bool]:
         p = float(self.backend.approve_prob(state))
         value = p > self.policy["approve_threshold"]
-        return value, p, max(p, 1.0 - p) < self.policy["approve_min_conf"]
+        lo, hi = self.policy.get("approve_abstain_band", (None, None))
+        if lo is None:
+            return value, p, max(p, 1.0 - p) < self.policy["approve_min_conf"]
+        # Cost-aware band: a wrong approval costs 3x a wrong hold, so the band
+        # is lopsided. It refers p in (lo, hi) to a human; above hi we approve.
+        return value, p, lo < p < hi
 
     # -- grounding ----------------------------------------------------------
     def grounded(self, state: Dict[str, Any]) -> Tuple[bool, float, bool]:
