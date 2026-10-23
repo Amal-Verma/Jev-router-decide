@@ -140,6 +140,11 @@ def main():
     ap.add_argument("--holdout", type=int, default=1000)
     ap.add_argument("--seed", type=int, default=13)
     ap.add_argument("--base", default=BASE)
+    ap.add_argument("--train_file", default=None, help="overrides <data>/train.jsonl")
+    ap.add_argument("--dev_file", default=None, help="overrides <data>/dev.jsonl")
+    ap.add_argument("--no_export", action="store_true", help="skip ONNX export (CV runs)")
+    ap.add_argument("--every_epoch", action="store_true",
+                    help="also save holdout and dev logits after each epoch (e<N>_cal.npz, e<N>_dev.npz)")
     args = ap.parse_args()
 
     random.seed(args.seed)
@@ -148,16 +153,17 @@ def main():
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     os.makedirs(args.out, exist_ok=True)
 
-    rows = load(os.path.join(args.data, "train.jsonl"))
+    rows = load(args.train_file or os.path.join(args.data, "train.jsonl"))
     random.shuffle(rows)
     cal, train = rows[:args.holdout], rows[args.holdout:]
-    devset = load(os.path.join(args.data, "dev.jsonl"))
+    devset = load(args.dev_file or os.path.join(args.data, "dev.jsonl"))
     print(f"train {len(train)}  calibration {len(cal)}  dev {len(devset)}  device {dev}", flush=True)
 
     tok = AutoTokenizer.from_pretrained(args.base)
     model = DecideNet(args.base).to(dev)
     items = [(t, r) for r in train for t in TASKS]
-    steps = args.epochs * math.ceil(len(items) / args.bs)
+    # batches are grouped per task, so each task rounds up on its own
+    steps = args.epochs * len(TASKS) * math.ceil(len(train) / args.bs)
     head_params = [p for n, p in model.named_parameters() if not n.startswith("encoder.")]
     opt = torch.optim.AdamW([
         {"params": model.encoder.parameters(), "lr": args.lr},
@@ -195,6 +201,9 @@ def main():
         acc_a = np.mean((lg["approve"] > 0) == [r["labels"]["approve"] for r in devset])
         acc_g = np.mean((lg["grounded"] > 0) == [r["labels"]["grounded"] for r in devset])
         print(f"epoch {ep + 1}: dev acc route {acc_r:.4f} approve {acc_a:.4f} grounded {acc_g:.4f}", flush=True)
+        if args.every_epoch:
+            np.savez(os.path.join(args.out, f"e{ep + 1}_dev.npz"), **lg)
+            np.savez(os.path.join(args.out, f"e{ep + 1}_cal.npz"), **predict(model, tok, cal, dev, args.max_len))
 
     # ---- calibration on the held-out slice of train --------------------------
     lc = predict(model, tok, cal, dev, args.max_len)
@@ -213,6 +222,8 @@ def main():
         json.dump([r["request_id"] for r in cal], fh)
 
     # ---- export ----------------------------------------------------------------
+    if args.no_export:
+        return
     model = model.float().cpu().eval()
     tok.save_pretrained(os.path.join(args.out, "tok"))
     export_onnx(model, tok, args.out, args.max_len)
