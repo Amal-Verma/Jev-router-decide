@@ -82,3 +82,8 @@ held at full marks). Served configuration, 5 epochs: **82.44 ± 1.30**
 approve cost 0.185 ± 0.021, grounded F1 0.991 ± 0.002, mean ECE 0.023 ± 0.003.
 Most of the spread comes from approval cost, the noisiest label. The dev result
 (83.4 offline) sits inside the fold range.
+
+**Final served weights** are retrained on all 8,000 labelled rows (train + dev,
+1,000 held out for calibration and policy). Because dev was in the training data,
+`results.json` dev scores are optimistic; the honest estimate is the 4-fold
+cross-validated **82.44 ± 1.30** above.
