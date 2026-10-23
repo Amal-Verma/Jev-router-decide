@@ -1,0 +1,296 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage[hyphens]{url}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\setlist{nosep,leftmargin=1.4em}
+
+\definecolor{shared}{HTML}{DBEAFE}
+\definecolor{sharededge}{HTML}{1D4ED8}
+\definecolor{head}{HTML}{FEF3C7}
+\definecolor{headedge}{HTML}{B45309}
+\definecolor{io}{HTML}{F1F5F9}
+\definecolor{ioedge}{HTML}{475569}
+\definecolor{cfree}{HTML}{2563EB}
+\definecolor{cpro}{HTML}{D97706}
+\definecolor{cent}{HTML}{059669}
+
+\hypersetup{colorlinks=true,linkcolor=sharededge,urlcolor=sharededge}
+
+\tikzset{
+  box/.style={draw=ioedge,fill=io,rounded corners=3pt,align=center,font=\small,inner sep=5pt},
+  sbox/.style={draw=sharededge,fill=shared,rounded corners=3pt,align=center,font=\small,inner sep=5pt},
+  hbox/.style={draw=headedge,fill=head,rounded corners=3pt,align=center,font=\small,inner sep=5pt},
+  arr/.style={-{Stealth[length=2.2mm]},thick,draw=ioedge},
+}
+
+\title{\textbf{Decide}\\[2pt]\large A sub-25\,ms typed decision engine on CPU\\one shared model for routing, approval and grounding}
+\author{Amal Verma}
+\date{October 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Decide answers three typed questions about a customer-support request:
+\emph{route} (one of five queues), \emph{approve} (can the action be
+auto-approved) and \emph{grounded} (is the drafted reply supported by the
+attached knowledge-base article). One multi-task model answers all three: a
+fine-tuned MiniLM cross-encoder shared by every decision, a shared
+mixture of experts, and one linear head per decision. It is served as a single
+24\,MB int8 ONNX graph on CPU, with probabilities calibrated per head and an
+abstention policy set on held-out data. On the public dev split it scores
+\textbf{83.76/100} with the official self-check (classical baseline 78.45), with a
+mean per-decision p95 latency of about 24\,ms, measured one request at a time.
+\end{abstract}
+
+\section{The problem, and what each question compares}
+
+Every call names one decision and carries the full state
+(\texttt{subject}, \texttt{body}, \texttt{customer\_tier}, \texttt{amount},
+\texttt{draft\_reply}, \texttt{kb\_article}). The three questions are not the
+same shape:
+
+\begin{itemize}
+  \item \textbf{route} reads the ticket text. It is a 5-way choice with noisy labels
+        (some tickets carry two issues and the label follows the secondary one).
+  \item \textbf{approve} is mostly \emph{not} a text question. Data analysis
+        (Fig.~\ref{fig:approve}) shows a per-tier amount cutoff (free around \$30,
+        pro around \$120, enterprise around \$500), overridden by red-flag phrases
+        (``raised something similar'', ``signed up recently'', prior disputes,
+        asking for an exception). A wrong approval costs three times a wrong hold.
+  \item \textbf{grounded} compares two texts: does the draft change a number
+        (``a quarter of an hour'' against ``an hour''), widen the scope (``all orders''
+        against ``domestic orders'') or change the audience (``all users'' against
+        ``administrators'')? This is natural-language inference.
+\end{itemize}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.72\linewidth, height=5.2cm,
+  xlabel={claimed amount (\$, window upper bound)}, ylabel={approval rate},
+  xmode=log, log basis x=10,
+  xtick={10,25,50,100,200,500,1000}, xticklabels={10,25,50,100,200,500,1000+},
+  ymin=0, ymax=1, grid=major, grid style={gray!20},
+  legend style={at={(1.02,0.5)},anchor=west,font=\small,draw=none},
+  every axis plot/.append style={thick, mark size=1.8pt},
+]
+\addplot[color=cfree,mark=*] coordinates {(10,0.81)(25,0.68)(50,0.12)(75,0.0)(100,0.0)(150,0.0)(200,0.0)(300,0.0)(500,0.0)(1000,0.0)};
+\addplot[color=cpro,mark=square*] coordinates {(10,0.73)(25,0.78)(50,0.85)(75,0.81)(100,0.58)(150,0.23)(200,0.0)(300,0.0)(500,0.0)(1000,0.0)};
+\addplot[color=cent,mark=triangle*] coordinates {(10,0.71)(25,0.82)(50,0.86)(75,0.84)(100,0.75)(150,0.77)(200,0.71)(300,0.83)(500,0.71)(1000,0.0)};
+\legend{free, pro, enterprise}
+\end{axis}
+\end{tikzpicture}
+\caption{Approval rate by amount window and tier (train split, non-zero amounts).
+Below the cutoff the rate sits near 0.8 rather than 1.0: the rest depends on red
+flags and on account history the ticket does not mention, so a perfect score is not
+possible.}
+\label{fig:approve}
+\end{figure}
+
+\section{Architecture: where the sharing happens}
+
+\begin{figure}[h]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[node distance=5mm and 7mm]
+  \node[box, text width=3.3cm] (r) {\textbf{route}\\(subject, body)};
+  \node[box, text width=3.3cm, below=of r] (a) {\textbf{approve}\\(tier, \$amount, subject; body)\\+ 75 tabular features};
+  \node[box, text width=3.3cm, below=of a] (g) {\textbf{grounded}\\(kb\_article, draft\_reply)};
+
+  \node[sbox, text width=2.6cm, right=12mm of a] (enc) {MiniLM-L6-H384\\encoder\\(mean pool)};
+  \node[sbox, text width=2.2cm, above right=2mm and 9mm of enc] (gate) {gate\\(text + task emb.)};
+  \node[sbox, text width=2.2cm, below right=2mm and 9mm of enc] (exp) {4 expert MLPs\\(text + tab + task)};
+  \node[sbox, right=30mm of enc] (mix) {$\sum_k g_k\,e_k$};
+
+  \node[hbox, right=10mm of mix, yshift=12mm] (h1) {route head\\5 logits};
+  \node[hbox, right=10mm of mix] (h2) {approve head\\1 logit};
+  \node[hbox, right=10mm of mix, yshift=-12mm] (h3) {grounded head\\1 logit};
+
+  \draw[arr] (r.east) -- (enc.west);
+  \draw[arr] (a.east) -- (enc.west);
+  \draw[arr] (g.east) -- (enc.west);
+  \draw[arr] (enc) -- (gate);
+  \draw[arr] (enc) -- (exp);
+  \draw[arr] (gate) -- (mix);
+  \draw[arr] (exp) -- (mix);
+  \draw[arr] (mix) -- (h1.west);
+  \draw[arr] (mix) -- (h2.west);
+  \draw[arr] (mix) -- (h3.west);
+
+  \begin{scope}[on background layer]
+    \node[draw=sharededge, dashed, rounded corners=6pt, inner sep=6pt,
+          fit=(enc)(gate)(exp)(mix),
+          label={[font=\small\bfseries,text=sharededge]above:shared by all decisions (one ONNX graph)}] {};
+  \end{scope}
+\end{tikzpicture}}
+\caption{Decide network. Inputs are framed per decision; the encoder, gate and
+experts (blue) are shared; only the final linear layer (amber) is per decision.
+Adding a fourth decision means one task-embedding row, one linear head and its
+training examples.}
+\label{fig:arch}
+\end{figure}
+
+\paragraph{Shared encoder.} A 6-layer, 384-wide MiniLM cross-encoder
+(initialised from \path{cross-encoder/ms-marco-MiniLM-L6-v2}, Apache-2.0). It
+was pre-trained on text \emph{pairs}, which suits grounding, a
+premise/hypothesis comparison.
+
+\paragraph{Shared mixture of experts.} Four expert MLPs ($d=256$) read the pooled
+text vector, a 64-d projection of the tabular features and a 32-d task embedding.
+A softmax gate over (pooled text, task embedding) mixes them. Related decisions
+can reuse experts, and the differently shaped ones (approval leans on amount and
+tier; grounding on pair comparison) can specialise.
+
+\paragraph{Per-decision framing.} The approve input puts tier and amount into
+the text \emph{and} supplies 75 explicit features: tier one-hots, $\log(1+\text{amount})$,
+a tier $\times$ amount-cut grid at 19 cut points, and red-flag and plan-mention
+indicators. A text encoder alone learns sharp numeric thresholds poorly.
+
+\section{Training, calibration and abstention}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[node distance=6mm and 8mm]
+  \node[box] (d) {train.jsonl\\6{,}500};
+  \node[box, right=of d, yshift=8mm] (tr) {5{,}500\\multi-task fine-tune\\Kaggle T4, 5 epochs};
+  \node[box, right=of d, yshift=-10mm] (ho) {1{,}000 holdout};
+  \node[box, right=of tr] (ex) {ONNX export\\int8 dynamic quant.};
+  \node[box, right=of ho] (cal) {temperature / head\\abstain thresholds};
+  \node[sbox, right=of ex, yshift=-9mm] (art) {artifacts/\\24\,MB};
+  \node[box, right=of art] (sc) {selfcheck\\on dev};
+  \draw[arr] (d) -- (tr); \draw[arr] (d) -- (ho);
+  \draw[arr] (tr) -- (ex); \draw[arr] (ho) -- (cal); \draw[arr] (tr) -- (cal);
+  \draw[arr] (ex) -- (art); \draw[arr] (cal) -- (art); \draw[arr] (art) -- (sc);
+\end{tikzpicture}
+\caption{Pipeline. The dev split is used only for reporting and for choosing the
+backbone, never for fitting.}
+\end{figure}
+
+\paragraph{Training.} The three decisions are trained jointly, with one decision per batch
+(cross-entropy for route, binary cross-entropy for the two binaries), using AdamW
+with a one-cycle schedule ($4\times10^{-5}$ encoder, $10\times$ for the new
+layers), fp16, batch size 32 and max length 192. Five epochs take about 3 minutes on a T4.
+
+\paragraph{Calibration.} One temperature per head, fitted by negative
+log-likelihood on the holdout \cite{guo2017}: $T_\text{route}=1.18$,
+$T_\text{approve}=1.01$, $T_\text{grounded}=1.23$.
+
+\paragraph{Committed value.} Approve returns ``yes'' only when $p>0.75$, the
+Bayes threshold for a 3:1 cost ratio. Grounded uses $p>0.5$; route uses the arg-max.
+
+\paragraph{Abstention.} The self-check scales quality down below 80\% coverage
+and charges nothing above it, so each decision abstains on roughly its
+least-confident 15\% (thresholds from holdout quantiles, targeting 85\% for a
+margin). Route abstains when the top probability is below 0.90, approve when
+$\max(p,1-p)<0.81$, grounded when $\max(p,1-p)<0.975$. Abstained cases still
+return calibrated probabilities.
+
+\section{Results on the public dev split}
+
+All numbers come from the official \texttt{selfcheck.py} over the full dev set
+(1{,}500 records $\times$ 3 decisions, one request at a time, after warm-up).
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccc}
+\toprule
+ & route & approve & grounded \\
+\midrule
+quality & macro-F1 0.940 & cost 0.184 (hold-all 0.351) & macro-F1 0.991 \\
+accuracy / error, full coverage & 0.891 / 0.109 & --- / 0.099 & --- / 0.029 \\
+error, top 80\% by confidence & 0.056 & 0.058 & 0.007 \\
+ECE & 0.019 & 0.013 & 0.017 \\
+Brier skill & 0.79 & 0.68 & 0.91 \\
+declared coverage & 0.83 & 0.85 & 0.84 \\
+p50 / p95 latency (ms) & 10.6 / 21.2 & 11.7 / 23.3 & 15.1 / 28.4 \\
+\bottomrule
+\end{tabular}
+\caption{Served model (H384 + mixture of experts).}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  ybar, bar width=9pt, width=0.9\linewidth, height=5.4cm,
+  symbolic x coords={quality,calibration,latency,abstention},
+  xtick=data, ymin=0, ymax=1.25, ytick={0,0.25,0.5,0.75,1}, ylabel={axis score (0--1)},
+  legend style={at={(0.5,1.03)},anchor=south,legend columns=3,font=\small,draw=none,/tikz/every even column/.append style={column sep=8pt}},
+  nodes near coords, every node near coord/.append style={font=\tiny,rotate=90,anchor=west},
+  enlarge x limits=0.15, grid=major, grid style={gray!20},
+]
+\addplot[fill=gray!45,draw=gray] coordinates {(quality,0.783)(calibration,0.760)(latency,1.0)(abstention,0.542)};
+\addplot[fill=cpro!60,draw=cpro] coordinates {(quality,0.828)(calibration,0.849)(latency,0.492)(abstention,0.632)};
+\addplot[fill=cfree!60,draw=cfree] coordinates {(quality,0.850)(calibration,0.856)(latency,1.0)(abstention,0.558)};
+\legend{baseline (78.45), H768 NLI (73.65), H384 served (83.76)}
+\end{axis}
+\end{tikzpicture}
+\caption{Score axes (weights: quality 40\%, calibration 25\%, latency 20\%,
+abstention 15\%). The H768 run used an earlier coverage target of 82\%, under which its
+grounded coverage fell to 0.75, below the 80\% target.}
+\label{fig:scores}
+\end{figure}
+
+Latency was measured on a laptop i5-1135G7 (8 threads) that was also running
+unrelated heavy jobs (load average about 13), with ONNX Runtime pinned to 4
+intra-op threads. An idle 4-core machine should be no slower.
+
+\section{The trade-off: H384 over H768}
+
+We trained the same multi-task model on two backbones. The larger
+\path{cross-encoder/nli-MiniLM2-L6-H768} (NLI pre-trained) grounds perfectly
+on dev (F1 1.000 against 0.991) but runs about $1.7\times$ slower. Its mean p95 was
+63\,ms against 37\,ms under identical load, which costs half of the 20\% latency
+axis. A 0.009 F1 gain on one of three decisions does not pay for that, so we
+serve H384.
+
+\section{Where it fails}
+
+\begin{itemize}
+  \item \textbf{Routing}: about 11\% of dev labels disagree with the evident topic,
+        mostly multi-issue tickets. Probabilities spread out on these instead of
+        claiming certainty; route ECE is 0.019.
+  \item \textbf{Approval}: errors cluster at the tier cutoffs and on cases decided by
+        account history the ticket never mentions. The error rate at full
+        coverage is 9.9\%; on the 80\% the model is most confident about, it is 5.8\%.
+  \item \textbf{Grounding}: residual misses are subtle duration paraphrases and
+        scope swaps that read alike.
+  \item The data is synthetic and templated. Unseen phrasing, other currencies or
+        new tiers will degrade it, and the amount features assume USD-scale values.
+\end{itemize}
+
+\section{Reproducing}
+
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+Serve & \texttt{pip install -r requirements.txt \&\& uvicorn app:app -{}-host 0.0.0.0 -{}-port 8000} \\
+Score & \texttt{python selfcheck.py -{}-url http://localhost:8000/v1/decide} \\
+Train & \texttt{kaggle/decide\_train.ipynb} on a Kaggle T4, or \texttt{train\_encoder.py} on any GPU \\
+Policy & \texttt{python tune\_policy.py <artifact dir>} \\
+\end{tabularx}
+
+\paragraph{Pretrained components.} \path{cross-encoder/ms-marco-MiniLM-L6-v2}
+(Apache-2.0, served) and \path{cross-encoder/nli-MiniLM2-L6-H768} (Apache-2.0,
+compared only). Libraries: PyTorch, Transformers, ONNX Runtime, tokenizers,
+FastAPI, Uvicorn, scikit-learn, LightGBM.
+
+\begin{thebibliography}{9}
+\bibitem{guo2017} C.~Guo, G.~Pleiss, Y.~Sun, K.~Q.~Weinberger.
+  \emph{On Calibration of Modern Neural Networks.} ICML 2017.
+\end{thebibliography}
+
+\end{document}

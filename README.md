@@ -112,6 +112,7 @@ one decision does not pay for that.
 
 ## Docs
 
+- `docs/report/report.pdf`: 4-page technical report (LaTeX source alongside)
 - `docs/ARCHITECTURE.md`: diagrams of the model, request path, training and policy
 - `docs/API.md`: request and response reference
 - `docs/TRAINING.md`: how to retrain (Kaggle GPU) and rebuild the policy
