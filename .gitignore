@@ -14,3 +14,7 @@ data/*.jsonl
 # started cannot be scored.
 .venv/
 results_baseline.json
+kaggle/dataset/*.jsonl
+kaggle/bundle/
+kaggle/out/
+kaggle/art_*/

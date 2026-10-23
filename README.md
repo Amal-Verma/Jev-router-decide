@@ -1,130 +1,120 @@
-# Decide — starter repo
+# Decide: a CPU-only typed decision engine
 
-A working, schema-valid endpoint that scores almost nothing. Your job is to make
-it good.
+One shared model answers three typed questions about a support ticket
+(`route`, `approve`, `grounded`) behind `POST /v1/decide`, with calibrated
+probabilities and a deliberate abstention policy. No network calls at serving
+time; inference is a single int8 ONNX graph on CPU.
 
-Everything here exists so that you never lose time to HTTP plumbing, JSON shapes
-or measurement. None of it does any of the thinking for you.
-
----
-
-## Quick start
+## Run it (clean 4-core Linux box)
 
 ```bash
-pip install -r requirements.txt
-uvicorn app:app --host 0.0.0.0 --port 8000
+pip install -r requirements.txt && uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
-In a second terminal:
+The trained weights are committed in `artifacts/` (int8 ONNX, 24 MB), so
+there is nothing to download. Then, with `data/dev.jsonl` in place:
 
 ```bash
-python selfcheck.py --url http://localhost:8000/v1/decide --limit 200
+python selfcheck.py --url http://localhost:8000/v1/decide
 ```
 
-That should run clean and give you a very low score. You now have a valid
-submission. Everything from here is improvement, not integration.
+## Architecture: where the sharing happens
 
-Put `train.jsonl` and `dev.jsonl` in `data/`.
-
-## The only file you change
-
-**`model.py`.** It holds one class with three methods:
-
-```python
-route(state)     -> (value, probs, confidence, abstain)
-approve(state)   -> (value, p_true, abstain)
-grounded(state)  -> (value, p_true, abstain)
+```
+             route: (subject, body)
+  request -> approve: ("<tier> plan, $<amount>. subject", body) + tier/amount/flag features
+             grounded: (kb_article, draft_reply)          [NLI premise / hypothesis]
+                 |
+                 v
+     shared Transformer encoder (MiniLM-L6-H384)         <- shared by all decisions
+                 |  mean-pooled
+                 v
+     shared Mixture of Experts: 4 expert MLPs,           <- shared by all decisions
+     soft gate conditioned on (pooled text, task embedding)
+                 |
+        +--------+---------+
+        v        v         v
+     route    approve   grounded                         <- one Linear head each
+     (5-way)  (binary)  (binary)
+                 |
+     per-head temperature scaling -> policy (threshold, abstention)
 ```
 
-Keep those signatures and return shapes and the rest of the repo keeps working.
+- **Encoder and experts are shared** (`DecideNet` in `train_encoder.py`). Every
+  request, whatever its decision type, runs through the same weights in the same
+  ONNX graph (`artifacts/decide.onnx`). Only the last Linear layer differs.
+- **The questions are not the same shape**, so each one is framed for what it
+  compares (`decide/inputs.py`): routing reads the ticket, approval reads the
+  ticket plus structured features (the policy is mostly a per-tier amount
+  threshold with red-flag overrides), and grounding is a cross-encoded
+  premise/hypothesis pair, which is why we start from an encoder pre-trained
+  as a cross-encoder over text pairs.
+- **Adding a fourth decision** is one new task-embedding row, one Linear head
+  and its training examples. The encoder and experts are reused, and inference cost
+  does not change.
 
-`app.py` is the HTTP layer and implements the required contract exactly. You
-should not need to touch it. If you find yourself changing the response shape,
-stop — automated judging will reject it.
+## Calibration and abstention
 
-`selfcheck.py` is the same scoring code the judges run, pointed at your dev
-split. There is no hidden extra criterion.
+- Training holds out 1,000 train records. One temperature per head is fitted on
+  them by NLL (Guo et al. 2017). The dev split is never used for fitting.
+- `approve` commits to "yes" only when `p_true > 0.75`: a wrong approval costs
+  3x a wrong hold, so the Bayes threshold is 3/(3+1).
+- Each decision abstains on its least-confident ~18% (thresholds in
+  `artifacts/policy.json`, chosen on the holdout by `tune_policy.py`), so the
+  declared coverage sits just above the 80% target.
 
-## What you have to decide
+## Training
 
-All of it. The model, the features, how the three decision types share a
-backbone, how you train, how you turn scores into probabilities you can defend,
-and when to abstain. That is the exercise, and the scoring rubric is the only
-guidance you get.
+GPU training ran on a Kaggle T4 (`kaggle/decide_train.ipynb` runs
+`train_encoder.py`): multi-task fine-tuning, one task per batch, 5 epochs,
+AdamW + one-cycle schedule, fp16. It exports to ONNX and applies dynamic int8
+quantisation. Then `python tune_policy.py artifacts` writes the abstention
+policy.
 
-Four things worth knowing before you pick an approach:
+`train_baseline.py` is the gate-1 classical baseline (TF-IDF + logistic
+regression / LightGBM). `model.py` falls back to it if `artifacts/decide.onnx`
+is absent.
 
-- **A simple baseline is harder to beat than you expect.** Build one first. It
-  takes twenty minutes and tells you how hard the problem actually is.
-- **The three questions are not all the same shape.** Think about what each one
-  is comparing before you commit to an architecture.
-- **Raw model confidence is usually overconfident.** Accuracy and calibration
-  are separate problems with separate fixes. `selfcheck.py` reports ECE.
-- **Look at the trivial-policy lines in the report.** For at least one decision,
-  doing nothing at all is a respectable strategy, and your threshold probably
-  should not be 0.5.
+## Pretrained components and licences
 
-## Gates
-
-| | By | What |
+| Component | Use | Licence |
 |---|---|---|
-| Gate 1 | T+2:00 | A simple baseline submitted and scored |
-| Gate 2 | T+5:30 | A live endpoint conforming to the schema, serving *something* |
+| `cross-encoder/ms-marco-MiniLM-L6-v2` (Hugging Face) | encoder initialisation (served model) | Apache-2.0 |
+| `cross-encoder/nli-MiniLM2-L6-H768` (Hugging Face) | compared backbone, not served | Apache-2.0 |
 
-Gate 2 is why the stub exists. Get a service running early even if the model
-inside it is useless, then improve the model. Teams that stay in a notebook
-until hour nine do not finish.
+Libraries: PyTorch (BSD-3), Transformers (Apache-2.0), ONNX Runtime (MIT),
+tokenizers (Apache-2.0), FastAPI (MIT), Uvicorn (BSD-3), scikit-learn (BSD-3),
+LightGBM (MIT).
 
-## Hard constraints
+## Results (public dev split, full self-check)
 
-- **CPU only at inference.** Train on GPU if you like; serve on CPU.
-- **No network calls while serving.** No LLM API, no hosted embeddings, nothing
-  external in the request path.
-- **p95 under 100ms per call**, measured by the judges on a 4-core machine.
-  Full marks at 25ms.
-- **One shared model across all three decision types**, not three separate
-  models behind a router. Your README must say where the sharing happens.
-- **Artifacts under 500MB total.**
-- Pretrained open-weight models published before the event are fine. Name each
-  one and its licence in your README.
+| | score |
+|---|---|
+| classical baseline (`train_baseline.py`) | 78.45 |
+| shared encoder, H768 NLI backbone | 73.65 (more accurate grounding, too slow) |
+| **shared encoder + MoE, H384 (served)** | **83.76** |
 
-## Reading your self-check
+Mean p95 is about 24 ms per call. Full numbers are in `results.json`; accuracy,
+calibration and failure modes are in `model_card.md`.
 
-| Axis | Weight | What it is |
-|---|---|---|
-| quality | 40% | How often you are right, scored against the best trivial policy for each decision |
-| calibration | 25% | Whether your probabilities mean what they say (ECE, Brier) |
-| latency | 20% | p95 per call. Full marks at 25ms, zero at the 100ms gate |
-| abstention | 15% | Whether your confidence ranks your own errors, at 80% coverage |
+## One trade-off we made
 
-Your latency numbers depend on your machine. The judges re-measure on theirs, so
-treat yours as a guide. Measure one request at a time — batching many requests
-and dividing is not latency and will not be accepted.
+We served the smaller H384 backbone over the H768 NLI one. H768 grounds
+perfectly on dev (F1 1.00 vs 0.99) but costs about 1.7x the latency, and
+latency is 20% of the score with full marks only at 25 ms. A 0.01 F1 gain on
+one decision does not pay for that.
 
-## Submitting
+## Layout
 
-- Public Git repo: code, `README.md`, `model_card.md`, `results.json`
-- A **single command** in your README that starts the service on a clean 4-core
-  Linux box. If the judges cannot start it, it cannot be scored.
-- The host and port where your service is running at the deadline
-- `results.json` — produced by `python selfcheck.py --url ...`
-- `model_card.md` — one page: what you built, what you trained on, your measured
-  accuracy and calibration, where it fails, and when it abstains. **Submissions
-  without a model card are not ranked.**
-
-If your weights are not in the repo, your README must say how to produce or
-fetch them. A service the judges cannot start scores zero.
-
-## Practical
-
-- **Commit and push every thirty minutes.** Free Lightning Studios restart every
-  four hours. That will happen to you twice. Anything unpushed is gone.
-- **Pre-download any pretrained weights** before the clock starts.
-- Mentors will help with environment, tooling and debugging. They will not tell
-  you what architecture to use or why a decision is scoring badly.
-
-## What is deliberately not in here
-
-No model, no features, no training script, no calibration, no abstention policy,
-no serving or threading configuration. Those are the parts being assessed. If
-something feels missing, it is probably the thing you are supposed to build.
+```
+app.py              HTTP layer (starter, unchanged)
+model.py            DecisionModel: policy (thresholds, abstention) over a backend
+decide/inputs.py    per-decision input framing for the shared encoder
+decide/tabular.py   approve features (tier x amount cuts, red flags)
+decide/features.py  duration normalisation ("two weeks" == "14 days")
+decide/runtime.py   ONNX Runtime CPU backend
+train_encoder.py    multi-task training + ONNX export (GPU)
+tune_policy.py      abstention thresholds from the calibration holdout
+train_baseline.py   gate-1 classical baseline (needs requirements-train.txt)
+kaggle/decide_train.ipynb  the Kaggle notebook used for training
+```

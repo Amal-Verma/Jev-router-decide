@@ -1,0 +1,8 @@
+torch>=2.3
+transformers>=4.44
+onnx>=1.16
+onnxscript
+onnxruntime>=1.18
+scikit-learn>=1.4
+lightgbm>=4.3
+scipy>=1.11
