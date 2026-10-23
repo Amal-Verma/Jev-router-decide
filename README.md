@@ -20,25 +20,31 @@ python selfcheck.py --url http://localhost:8000/v1/decide
 
 ## Architecture: where the sharing happens
 
+```mermaid
+flowchart TD
+    R["POST /v1/decide<br/>decision + state"] --> F{"frame input<br/>per decision"}
+    F -->|route| I1["(subject, body)"]
+    F -->|approve| I2["(tier plan, $amount. subject, body)<br/>+ 75 tier/amount/flag features"]
+    F -->|grounded| I3["(kb_article, draft_reply)"]
+    I1 & I2 & I3 --> E["Shared encoder<br/>MiniLM-L6-H384, mean-pooled"]
+    E --> G["Gate<br/>(pooled text + task embedding)"]
+    E --> X["4 shared expert MLPs"]
+    G -->|soft weights| M["Mixture"]
+    X --> M
+    M --> H1["route head<br/>5 logits"]
+    M --> H2["approve head<br/>1 logit"]
+    M --> H3["grounded head<br/>1 logit"]
+    H1 & H2 & H3 --> T["Temperature scaling<br/>(per head)"]
+    T --> P["Policy: approve if p > 0.75,<br/>abstain below the confidence threshold"]
+    P --> O["typed JSON response"]
+
+    classDef shared fill:#dbeafe,stroke:#1d4ed8,color:#0b1b3f
+    class E,G,X,M shared
 ```
-             route: (subject, body)
-  request -> approve: ("<tier> plan, $<amount>. subject", body) + tier/amount/flag features
-             grounded: (kb_article, draft_reply)          [NLI premise / hypothesis]
-                 |
-                 v
-     shared Transformer encoder (MiniLM-L6-H384)         <- shared by all decisions
-                 |  mean-pooled
-                 v
-     shared Mixture of Experts: 4 expert MLPs,           <- shared by all decisions
-     soft gate conditioned on (pooled text, task embedding)
-                 |
-        +--------+---------+
-        v        v         v
-     route    approve   grounded                         <- one Linear head each
-     (5-way)  (binary)  (binary)
-                 |
-     per-head temperature scaling -> policy (threshold, abstention)
-```
+
+Blue = shared by every decision type. More diagrams (request lifecycle,
+training pipeline, approve and abstention logic) are in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 - **Encoder and experts are shared** (`DecideNet` in `train_encoder.py`). Every
   request, whatever its decision type, runs through the same weights in the same
@@ -106,6 +112,7 @@ one decision does not pay for that.
 
 ## Docs
 
+- `docs/ARCHITECTURE.md`: diagrams of the model, request path, training and policy
 - `docs/API.md`: request and response reference
 - `docs/TRAINING.md`: how to retrain (Kaggle GPU) and rebuild the policy
 - `docs/DEMO.md`: three-minute demo script, including a refusal case
