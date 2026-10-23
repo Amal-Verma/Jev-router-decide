@@ -47,5 +47,5 @@ http://localhost:8000/v1/decide`.
 ## Baseline
 
 `python train_baseline.py` builds the gate-1 TF-IDF + LR/LightGBM model
-(`artifacts/baseline.pkl`, not committed). `model.py` uses it only when
+(`artifacts/baseline.pkl`, committed as the fallback). `model.py` uses it only when
 `artifacts/decide.onnx` is missing.
