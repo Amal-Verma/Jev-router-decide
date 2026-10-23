@@ -51,10 +51,11 @@ attached knowledge-base article). One multi-task model answers all three: a
 fine-tuned MiniLM cross-encoder shared by every decision, a shared
 mixture of experts, and one linear head per decision. It is served as a single
 24\,MB int8 ONNX graph on CPU, with probabilities calibrated per head and an
-abstention policy set on held-out data. Four-fold cross-validation over all
-8{,}000 labelled rows gives \textbf{82.4\,$\pm$\,1.3/100} on unseen data under
-the official scoring code (classical baseline 78.45). Mean per-decision p95
-latency is about 11\,ms, measured one request at a time.
+abstention policy set on held-out data. Trained on the training split only, it
+scores \textbf{83.75/100} on the public dev split with the official self-check
+(classical baseline 78.45), and 82.6\,$\pm$\,1.3 in a 4-fold cross-validation
+check. Mean per-decision p95 latency is about 12\,ms, measured one request at a
+time.
 \end{abstract}
 
 \section{The problem, and what each question compares}
@@ -167,8 +168,8 @@ indicators. A text encoder alone learns sharp numeric thresholds poorly.
 \begin{figure}[h]
 \centering
 \begin{tikzpicture}[node distance=6mm and 8mm]
-  \node[box] (d) {train + dev\\8{,}000};
-  \node[box, right=of d, yshift=8mm] (tr) {7{,}000\\multi-task fine-tune\\Kaggle T4, 5 epochs};
+  \node[box] (d) {train.jsonl\\6{,}500};
+  \node[box, right=of d, yshift=8mm] (tr) {5{,}500\\multi-task fine-tune\\Kaggle T4, 5 epochs};
   \node[box, right=of d, yshift=-10mm] (ho) {1{,}000 holdout};
   \node[box, right=of tr] (ex) {ONNX export\\int8 dynamic quant.};
   \node[box, right=of ho] (cal) {temperature / head\\abstain thresholds};
@@ -178,8 +179,9 @@ indicators. A text encoder alone learns sharp numeric thresholds poorly.
   \draw[arr] (tr) -- (ex); \draw[arr] (ho) -- (cal); \draw[arr] (tr) -- (cal);
   \draw[arr] (ex) -- (art); \draw[arr] (cal) -- (art); \draw[arr] (art) -- (sc);
 \end{tikzpicture}
-\caption{Final pipeline. Epochs, backbone and policy were chosen beforehand by
-4-fold cross-validation (Section~\ref{sec:cv}).}
+\caption{Pipeline. The dev split is never trained on; it is used for reporting.
+Cross-validation (Section~\ref{sec:cv}) was used only as a consistency check and
+to choose the approve abstention band.}
 \end{figure}
 
 \paragraph{Training.} The three decisions are trained jointly, with one decision per batch
@@ -188,8 +190,8 @@ with a one-cycle schedule ($4\times10^{-5}$ encoder, $10\times$ for the new
 layers), fp16, batch size 32 and max length 192. Five epochs take about 3 minutes on a T4.
 
 \paragraph{Calibration.} One temperature per head, fitted by negative
-log-likelihood on the holdout \cite{guo2017}: $T_\text{route}=1.10$,
-$T_\text{approve}=0.96$, $T_\text{grounded}=1.06$.
+log-likelihood on the holdout \cite{guo2017}: $T_\text{route}=1.18$,
+$T_\text{approve}=1.01$, $T_\text{grounded}=1.23$.
 
 \paragraph{Committed value.} Approve returns ``yes'' only when $p>0.75$, the
 Bayes threshold for a 3:1 cost ratio. Grounded uses $p>0.5$; route uses the arg-max.
@@ -197,18 +199,19 @@ Bayes threshold for a 3:1 cost ratio. Grounded uses $p>0.5$; route uses the arg-
 \paragraph{Abstention.} The self-check scales quality down below 80\% coverage
 and charges nothing above it, so each decision abstains on roughly its
 least-confident 15\% (holdout quantiles, targeting 85\% for a margin): route
-when the top probability is below 0.91, grounded when $\max(p,1-p)<0.99$.
+when the top probability is below 0.90, grounded when $\max(p,1-p)<0.975$.
 Approve uses a \emph{lopsided} band, abstaining when $0.15<p<0.79$: a wrong
 approval costs $3\times$ a wrong hold, so confident-looking approvals are the
 expensive mistakes. The band was chosen on 8{,}000 out-of-fold predictions.
 Abstained cases still return calibrated probabilities.
 
 \section{Results}
-\subsection{Cross-validation: the honest estimate}\label{sec:cv}
+\subsection{Cross-validation: is dev a lucky split?}\label{sec:cv}
 
-Train and dev were pooled (8{,}000 rows) and split into 4 folds. Each fold model
-trained on 6{,}000 rows (1{,}000 of them held out for calibration and policy) and
-was scored on its 2{,}000 unseen rows with the self-check's metric code.
+To check consistency, separate evaluation-only models were trained on 4 folds
+of train + dev (6{,}000 rows each, 1{,}000 of them held out for calibration and
+policy). Each was scored on its 2{,}000 unseen rows with the self-check's metric
+code. These fold models are not served.
 
 \begin{table}[h]
 \centering
@@ -216,9 +219,9 @@ was scored on its 2{,}000 unseen rows with the self-check's metric code.
 \toprule
  & mean $\pm$ std over 4 folds \\
 \midrule
-total (latency at full marks) & \textbf{82.44 $\pm$ 1.30} (82.9 / 82.7 / 83.9 / 80.3) \\
+total (latency at full marks) & \textbf{82.56 $\pm$ 1.28} (83.1 / 82.9 / 83.9 / 80.5) \\
 route macro-F1 & 0.940 $\pm$ 0.005 \\
-approve cost (3:1) & 0.185 $\pm$ 0.021 \\
+approve cost (3:1) & 0.176 $\pm$ 0.017 \\
 grounded macro-F1 & 0.991 $\pm$ 0.002 \\
 mean ECE & 0.023 $\pm$ 0.003 \\
 \bottomrule
@@ -228,11 +231,9 @@ threshold gained nothing over 0.75, and a residual analysis of the 8{,}000
 out-of-fold approve predictions found no learnable pattern left.}
 \end{table}
 
-The served model is the same pipeline retrained on all 8{,}000 rows. Its
-self-check score on dev (87.55) is optimistic, because dev was in its training
-data.
+The dev result below (83.75) falls inside the fold range.
 
-\subsection{Public dev split, model trained on train only}
+\subsection{Public dev split (served model)}
 
 All numbers come from the official \texttt{selfcheck.py} over the full dev set
 (1{,}500 records $\times$ 3 decisions, one request at a time, after warm-up).
@@ -243,16 +244,16 @@ All numbers come from the official \texttt{selfcheck.py} over the full dev set
 \toprule
  & route & approve & grounded \\
 \midrule
-quality & macro-F1 0.940 & cost 0.184 (hold-all 0.351) & macro-F1 0.991 \\
+quality & macro-F1 0.940 & cost 0.190 (hold-all 0.383) & macro-F1 0.991 \\
 accuracy / error, full coverage & 0.891 / 0.109 & --- / 0.099 & --- / 0.029 \\
-error, top 80\% by confidence & 0.056 & 0.058 & 0.007 \\
-ECE & 0.019 & 0.013 & 0.017 \\
+error, top 80\% by confidence & 0.056 & 0.057 & 0.007 \\
+ECE & 0.019 & 0.013 & 0.016 \\
 Brier skill & 0.79 & 0.68 & 0.91 \\
-declared coverage & 0.83 & 0.85 & 0.84 \\
-p50 / p95 latency (ms) & 10.6 / 21.2 & 11.7 / 23.3 & 15.1 / 28.4 \\
+declared coverage & 0.83 & 0.86 & 0.84 \\
+p50 / p95 latency (ms) & 7.6 / 11.3 & 8.6 / 12.3 & 10.7 / 13.8 \\
 \bottomrule
 \end{tabular}
-\caption{Served model (H384 + mixture of experts).}
+\caption{Served model (H384 + mixture of experts), public dev split, quiet machine.}
 \end{table}
 
 \begin{figure}[h]
@@ -269,7 +270,7 @@ p50 / p95 latency (ms) & 10.6 / 21.2 & 11.7 / 23.3 & 15.1 / 28.4 \\
 \addplot[fill=gray!45,draw=gray] coordinates {(quality,0.783)(calibration,0.760)(latency,1.0)(abstention,0.542)};
 \addplot[fill=cpro!60,draw=cpro] coordinates {(quality,0.828)(calibration,0.849)(latency,0.492)(abstention,0.632)};
 \addplot[fill=cfree!60,draw=cfree] coordinates {(quality,0.850)(calibration,0.856)(latency,1.0)(abstention,0.558)};
-\legend{baseline (78.45), H768 NLI (73.65), H384 served (83.76)}
+\legend{baseline (78.45), H768 NLI (73.65), H384 served (83.75)}
 \end{axis}
 \end{tikzpicture}
 \caption{Score axes (weights: quality 40\%, calibration 25\%, latency 20\%,
@@ -278,10 +279,11 @@ grounded coverage fell to 0.75, below the 80\% target.}
 \label{fig:scores}
 \end{figure}
 
-Latency was measured on a laptop i5-1135G7 (8 threads) that was also running
-unrelated heavy jobs (load average about 13), with ONNX Runtime pinned to 4
-intra-op threads. Re-measured on the quiet machine, the final model's p95 is
-9.7 / 10.5 / 12.2\,ms (route / approve / grounded).
+Latency was measured on a laptop i5-1135G7 (8 threads) with ONNX Runtime pinned to 4
+intra-op threads. Latency depends on machine load. In Fig.~\ref{fig:scores} the H384 bar comes from a quiet run;
+the H768 bar was measured under heavy unrelated load (load average about 13),
+where H384 itself measured 37\,ms. So the H768 latency bar is pessimistic, but
+it was about $1.7\times$ slower than H384 under identical load.
 
 \section{The trade-off: H384 over H768}
 

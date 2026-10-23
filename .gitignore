@@ -27,3 +27,5 @@ docs/report/pg*.png
 kaggle/cv_bundle/
 kaggle/cv_logits/
 kaggle/full_bundle/
+kaggle/cv2_bundle/
+kaggle/cv2_logits/

@@ -27,7 +27,7 @@ def sig(z):
     return 1 / (1 + np.exp(-z))
 
 
-def policy_from(cal, temps, coverage, approve_threshold=0.75):
+def policy_from(cal, temps, coverage, approve_threshold=0.75, band=None, grounded_coverage=None):
     z = cal["route"] / temps["route"]
     p = np.exp(z - z.max(1, keepdims=True))
     p /= p.sum(1, keepdims=True)
@@ -35,8 +35,9 @@ def policy_from(cal, temps, coverage, approve_threshold=0.75):
     q = 1 - coverage
     return {"route_min_conf": float(np.quantile(p.max(1), q)),
             "approve_min_conf": float(np.quantile(np.maximum(pa, 1 - pa), q)),
-            "grounded_min_conf": float(np.quantile(np.maximum(pg, 1 - pg), q)),
-            "approve_threshold": approve_threshold}
+            "grounded_min_conf": float(np.quantile(np.maximum(pg, 1 - pg), 1 - (grounded_coverage or coverage))),
+            "approve_threshold": approve_threshold,
+            **({"approve_abstain_band": band} if band else {})}
 
 
 def best_approve_threshold(cal, temps, ys):
@@ -68,6 +69,8 @@ def main(cv_dir="kaggle/cv_logits", bundle="kaggle/cv_bundle"):
             variants = {f"cov{c}": policy_from(cal, temps, c) for c in (0.82, 0.85, 0.88)}
             variants["cov0.85+tuned_thr"] = policy_from(
                 cal, temps, 0.85, best_approve_threshold(cal, temps, y_appr))
+            variants["served"] = policy_from(cal, temps, 0.85, band=[0.15, 0.79])
+            variants["served+g0.92"] = policy_from(cal, temps, 0.85, band=[0.15, 0.79], grounded_coverage=0.92)
             for name, pol in variants.items():
                 s = score(ev, responses(dev, temps, pol))
                 results.setdefault((e, name), []).append(s)
@@ -81,8 +84,8 @@ def main(cv_dir="kaggle/cv_logits", bundle="kaggle/cv_bundle"):
             line += f"  {v.mean():6.3f}±{v.std():.3f}" if k != "total" else f"  {v.mean():6.2f}±{v.std():.2f}"
         line += f"   {min(min(s['coverage']) for s in ss):.3f}"
         print(line)
-    folds_total = {k: round(results[(5, 'cov0.85')][k]['total'], 2) for k in range(FOLDS)}
-    print("\nper-fold total, served config (5 epochs, cov0.85):", folds_total)
+    folds_total = {k: round(results[(5, 'served')][k]['total'], 2) for k in range(FOLDS)}
+    print("\nper-fold total, served policy, 5 epochs:", folds_total)
 
 
 if __name__ == "__main__":

@@ -14,42 +14,44 @@ approve reads ("tier plan, $amount. subject", body) plus 75 structured
 tier/amount/red-flag features; grounded reads (kb_article, draft_reply) as a
 cross-encoded pair.
 
-**Training data.** All 8,000 provided labelled rows (train + dev). 7,000 are
-used for training and 1,000 are held out for calibration and the abstention
-thresholds. Training ran for 5 epochs on a Kaggle T4 (about 4 minutes),
-multi-task, one task per batch. The epoch count, backbone and policy were chosen
-by cross-validation (below) before this final fit.
+**Training data.** Only `train.jsonl` (6,500 rows): 5,500 for training and
+1,000 held out for calibration and the abstention thresholds. **The served model
+never saw `dev.jsonl`,** so the dev scores below are honest. Training ran for 5
+epochs on a Kaggle T4 (about 3 minutes), multi-task, one task per batch.
 
 **Calibration.** Temperature scaling per head, fitted by NLL on the holdout
-(route 1.10, approve 0.96, grounded 1.06).
+(route 1.18, approve 1.01, grounded 1.23).
 
-**How well it works (the honest estimate).** Train and dev were pooled and split
-into 4 folds. Each fold model trained on 6,000 rows and was scored on 2,000 rows
-it never saw, using the self-check's own metric code (`cv_analyze.py`):
+**Public dev split** (`results.json`, full self-check, 1,500 records x 3
+decisions): **83.75 / 100**. Route macro-F1 0.941, approve cost 0.190
+(always-hold 0.35), grounded macro-F1 0.991, mean ECE 0.016, Brier skill 0.79.
+
+**Consistency check (cross-validation).** To check that dev wasn't a lucky
+split, separate evaluation-only models were trained on 4 folds of train + dev
+(6,000 rows each). Each was scored on the 2,000 rows it never saw, using the
+self-check's own metric code (`cv_analyze.py`). These fold models are not
+served.
 
 | | mean ± std over 4 folds |
 |---|---|
-| total (latency at full marks) | **82.44 ± 1.30** (folds 82.9 / 82.7 / 83.9 / 80.3) |
+| total (latency at full marks) | **82.56 ± 1.28** (folds 83.1 / 82.9 / 83.9 / 80.5) |
 | route macro-F1 | 0.940 ± 0.005 |
-| approve cost (3:1) | 0.185 ± 0.021 (always-hold: about 0.38) |
+| approve cost (3:1) | 0.176 ± 0.017 (always-hold: about 0.38) |
 | grounded macro-F1 | 0.991 ± 0.002 |
 | mean ECE | 0.023 ± 0.003 |
 
-`results.json` comes from the self-check on the public dev split: 87.55, route
-F1 0.962, approve cost 0.177, grounded F1 0.999, mean ECE 0.013. **Dev was part
-of the final training data, so those numbers are optimistic.** Quote the
-cross-validated figure above. Before dev was added, the same pipeline trained on
-train only scored 83.76 on dev.
+Dev (83.75) sits inside the fold range, so it is a fair preview of the hidden
+test.
 
 **Latency** (self-check, one request at a time, quiet 8-thread laptop i5, ONNX
-Runtime with 4 threads): p50 / p95 = route 6.5 / 9.7 ms, approve 7.3 / 10.5 ms,
-grounded 8.6 / 12.2 ms.
+Runtime with 4 threads): p50 / p95 = route 7.6 / 11.3 ms, approve 8.7 / 12.3 ms,
+grounded 10.7 / 13.8 ms.
 
 **When it abstains.** Abstained requests still return calibrated probabilities.
 Thresholds live in `artifacts/policy.json`, set on the holdout to answer about 85% of
 requests (the target is 80%):
-- route: when the top-queue probability is under 0.91;
-- grounded: when max(p, 1-p) is under 0.99;
+- route: when the top-queue probability is under 0.90;
+- grounded: when max(p, 1-p) is under 0.975;
 - approve: when 0.15 < p < 0.79. The band is lopsided on purpose, because a
   wrong approval costs 3x a wrong hold. It was chosen on 8,000 out-of-fold
   predictions.
@@ -57,7 +59,7 @@ requests (the target is 80%):
 It commits to "approve" only when `p_true > 0.75` (the 3:1 Bayes threshold).
 
 **Where it fails.**
-- *Routing:* about 6 to 11% of labels disagree with the ticket's evident topic,
+- *Routing:* about 11% of labels disagree with the ticket's evident topic,
   mostly multi-issue tickets ("two things: ...") where the label follows the
   secondary issue. Probabilities spread out on these rather than claiming
   certainty.

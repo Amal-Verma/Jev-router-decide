@@ -31,8 +31,10 @@ def responses(logits, temps, policy):
         v = max(probs, key=probs.get)
         out["route"].append({"value": v, "probs": probs, "confidence": probs[v],
                              "abstain": probs[v] < policy["route_min_conf"]})
+        band = policy.get("approve_abstain_band")
+        ab = (band[0] < pa[i] < band[1]) if band else max(pa[i], 1 - pa[i]) < policy["approve_min_conf"]
         out["approve"].append({"value": bool(pa[i] > policy["approve_threshold"]), "p_true": float(pa[i]),
-                               "abstain": max(pa[i], 1 - pa[i]) < policy["approve_min_conf"]})
+                               "abstain": bool(ab)})
         out["grounded"].append({"value": bool(pg[i] > 0.5), "p_true": float(pg[i]),
                                 "abstain": max(pg[i], 1 - pg[i]) < policy["grounded_min_conf"]})
     return out

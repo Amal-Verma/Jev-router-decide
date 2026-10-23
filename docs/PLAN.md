@@ -10,7 +10,7 @@ abstention policy and p95 latency of 25 ms or less.
 | 2. Live endpoint (gate 2) | `uvicorn app:app` serves the schema | done |
 | 3. Shared encoder | multi-task MiniLM + MoE trained on GPU, exported int8 ONNX | done: Kaggle T4 |
 | 4. Calibration + abstention | temperatures and thresholds from the holdout | done: mean ECE 0.016, coverage 83-85% |
-| 5. Deliverables | README, model card, results.json, docs | done: 82.44 ± 1.30 cross-validated (4 folds) |
+| 5. Deliverables | README, model card, results.json, docs | done: 83.75 on dev (train-only model), 82.56 ± 1.28 cross-validated |
 
 Open:
 - Run the service on the judging host and give the judges its host and port.

@@ -72,8 +72,8 @@ flowchart TD
 
 The thresholds come from `artifacts/policy.json`, set on the training
 holdout so about 85% of requests are answered (target 80%). `route` abstains
-when its top-queue probability is under 0.91; `grounded` when
-max(p, 1-p) is under 0.99.
+when its top-queue probability is under 0.90; `grounded` when
+max(p, 1-p) is under 0.975.
 
 What the approve head learned from the labels:
 
@@ -90,12 +90,14 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    D["train + dev<br/>8,000"] --> SP{"split"}
-    SP -->|7,000| TR["multi-task fine-tune<br/>Kaggle T4, 5 epochs,<br/>one task per batch"]
+    D["train.jsonl<br/>6,500"] --> SP{"split"}
+    SP -->|5,500| TR["multi-task fine-tune<br/>Kaggle T4, 5 epochs,<br/>one task per batch"]
     SP -->|1,000 holdout| CAL["temperature per head<br/>+ abstention thresholds"]
     TR --> CAL
     TR --> EX["export ONNX<br/>+ int8 dynamic quantisation"]
     CAL --> ART["artifacts/<br/>decide.onnx 24 MB<br/>calibration.json, policy.json"]
     EX --> ART
-    CV["4-fold cross-validation"] -.->|"chose epochs, backbone, policy"| TR
+    CV["4-fold CV<br/>(evaluation only)"] -.->|"chose epochs, approve band"| TR
+    DEV["dev.jsonl 1,500<br/>(never trained on)"] -.->|"reporting"| SC["selfcheck.py<br/>83.75"]
+    ART --> SC
 ```

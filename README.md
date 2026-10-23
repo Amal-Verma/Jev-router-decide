@@ -61,7 +61,7 @@ training pipeline, approve and abstention logic) are in
 
 ## Calibration and abstention
 
-- Training holds out 1,000 of its labelled records. One temperature per head is
+- Training holds out 1,000 train records. One temperature per head is
   fitted on them by NLL (Guo et al. 2017).
 - `approve` commits to "yes" only when `p_true > 0.75`: a wrong approval costs
   3x a wrong hold, so the Bayes threshold is 3/(3+1).
@@ -78,9 +78,10 @@ AdamW + one-cycle schedule, fp16. It exports to ONNX and applies dynamic int8
 quantisation. Then `python tune_policy.py artifacts` writes the abstention
 policy.
 
-Model choices (epochs, backbone, policy) were made by 4-fold cross-validation
-over train + dev (`kaggle/decide_cv.ipynb`, `cv_analyze.py`). The served
-weights were then retrained on all 8,000 labelled rows (`--train_file`).
+The served weights are trained on `train.jsonl` only. 4-fold
+cross-validation (`kaggle/decide_cv.ipynb`, `cv_analyze.py`) was used to check
+consistency and choose epochs and the approve abstention band; its fold models
+are not served.
 
 `train_baseline.py` is the gate-1 classical baseline (TF-IDF + logistic
 regression / LightGBM). `model.py` falls back to it if `artifacts/decide.onnx`
@@ -103,10 +104,9 @@ LightGBM (MIT).
 |---|---|
 | classical baseline (`train_baseline.py`) | 78.45 |
 | shared encoder, H768 NLI backbone | 73.65 (more accurate grounding, too slow) |
-| shared encoder + MoE, H384, trained on train only | 83.76 |
-| **served: same, retrained on train + dev** | **82.44 ± 1.30** cross-validated (dev 87.55 is optimistic, dev was trained on) |
+| **shared encoder + MoE, H384 (served, trained on train only)** | **83.75** |
 
-Cross-validated over 4 folds of train+dev (2,000 unseen rows each): **82.44 ± 1.30** (folds 80.3 to 83.9), so the dev number is representative.
+As a consistency check, evaluation-only models trained on 4 folds of train + dev scored **82.56 ± 1.28** on unseen rows (folds 80.5 to 83.9), so dev is not a lucky split. The served model is trained on `train.jsonl` only and never sees dev.
 
 Mean p95 is about 11 ms per call on a quiet machine. Full numbers are in `results.json`; accuracy,
 calibration and failure modes are in `model_card.md`.
