@@ -19,7 +19,7 @@ const HEX = THEME.colors;
 const pres = new pptxgen();
 pres.layout = "LAYOUT_16x9";              // 10 x 5.625 in
 pres.theme = { headFontFace: THEME.headFontFace, bodyFontFace: THEME.bodyFontFace };
-pres.author = "Amal Verma";
+pres.author = "Ghruank Kothare, Amal Verma";
 pres.title = "Decide";
 const C = pres.SchemeColor;
 
@@ -50,7 +50,7 @@ pres.addSection({ title: "Intro" });
 let s = pres.addSlide({ masterName: "Title Dark", sectionTitle: "Intro" });
 s.addText("Decide", { placeholder: "title" });
 s.addText("One small model, three typed decisions, about 10 ms on a CPU", { placeholder: "subtitle" });
-s.addText("Amal Verma  ·  Applied ML track", { placeholder: "byline" });
+s.addText("Ghruank Kothare  &  Amal Verma  ·  Applied ML track", { placeholder: "byline" });
 s.addNotes("Decide answers three small questions about a support ticket with one 23 M-parameter model on a CPU, in about 10 ms, with honest confidence and the option to say: let a human decide.");
 
 // 2. Problem -----------------------------------------------------------------

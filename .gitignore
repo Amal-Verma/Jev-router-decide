@@ -49,3 +49,5 @@ kaggle/exp_bundle/
 kaggle/experts_logits/
 kaggle/ens_bundle/
 kaggle/ens_logits/
+kaggle/art_ettin_*/
+kaggle/ettin_fp32_bundle/
