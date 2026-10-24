@@ -121,6 +121,27 @@ but flattens the confidence ranking that the abstention score uses. It is not sh
 The runtime can load such maps (`fit_posthoc.py`, `posthoc.json`), but the served
 artifacts contain none.
 
+### Newer encoders, from-scratch network, preprocessing, cleaning, augmentation (dev, paired)
+
+| Variant | Seed 13 | Seed 14 | Mean | vs served MoE |
+|---|---|---|---|---|
+| Ettin-17m (2025) + vector/Platt calibration | 84.83 | 82.55 | 83.69 | +0.08 |
+| Ettin-32m (2025) + vector/Platt calibration | 83.50 | 82.78 | 83.14 | -0.47 |
+| DeBERTa-v3-xsmall NLI | | | | dropped: 25 to 31 ms p95 |
+| canonical durations ("two weeks" -> "14 days") | 83.21 | 83.20 | 83.20 | -0.40 |
+| label cleaning, relabel 563 rows (confident learning) | 82.84 | 82.34 | 82.59 | -1.02 |
+| label cleaning, drop 563 rows | 82.47 | 82.28 | 82.38 | -1.23 |
+| data augmentation 30% (label-safe) | 82.36 | 82.41 | 82.39 | -1.22 |
+| data augmentation 60% (1 seed) | 83.20 | | | +0.04 |
+| pure NN from scratch + preprocessing + MoE | 77.39 | 77.97 | 77.68 | -5.9 |
+
+Cleaning and augmentation both make training data cleaner than the test labels, so the
+model grows overconfident on noisy-looking cases and the abstention score drops.
+
+H768 speed: graph fusion (before or after int8) gave no reliable speed-up, because the
+attention blocks do not match ONNX Runtime's fusable pattern, and fusing the int8 graph
+changed outputs. H768 cannot be made meaningfully faster without changing the model.
+
 ### Conclusion
 
 No method beats the served model by more than the noise. Bayesian methods model
