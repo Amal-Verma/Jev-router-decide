@@ -1,0 +1,26 @@
+{
+  "members": [
+    {
+      "prefix": "m_",
+      "tok": "tok_m",
+      "name": "MiniLM-L6-H384 + MoE"
+    },
+    {
+      "prefix": "e_",
+      "tok": "tok_e",
+      "name": "Ettin-17m + MoE"
+    }
+  ],
+  "member_temp": [
+    {
+      "route": 1.1656168781521177,
+      "approve": 1.0263520077294357,
+      "grounded": 1.2161178353337538
+    },
+    {
+      "route": 1.2688067727377637,
+      "approve": 1.3617431694614415,
+      "grounded": 1.1492536293615228
+    }
+  ]
+}

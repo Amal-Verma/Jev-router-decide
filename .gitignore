@@ -51,3 +51,5 @@ kaggle/ens_bundle/
 kaggle/ens_logits/
 kaggle/art_ettin_*/
 kaggle/ettin_fp32_bundle/
+kaggle/art_ettin_fp32/
+kaggle/art_h384_served_backup/
