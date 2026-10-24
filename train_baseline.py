@@ -1,7 +1,7 @@
 """Classical baseline (gate 1): TF-IDF + logistic regression / LightGBM.
 
 Not the submission model; kept as the reference the transformer must beat.
-    python train_baseline.py   -> artifacts/baseline.pkl
+    python train_baseline.py   -> baseline/baseline.pkl
 """
 import json
 import pickle
@@ -35,7 +35,7 @@ def diff_text(s):
     return " ".join(["D_" + t for t in d if t not in ks] + ["K_" + t for t in k if t not in ds])
 
 
-def main(out="artifacts/baseline.pkl"):
+def main(out="baseline/baseline.pkl"):
     tr = load("data/train.jsonl")
     S = [r["state"] for r in tr]
 

@@ -1,8 +1,8 @@
 """
 DecisionModel: one shared model, three typed decisions.
 
-Loads artifacts/decide.onnx (the shared multi-task encoder, see README) when
-present, otherwise falls back to the classical baseline in artifacts/baseline.pkl.
+Loads the shared multi-task model from artifacts/ (see README). The gate-1
+classical baseline lives in baseline/ and is not part of the served model.
 The three methods keep the starter's signatures and return shapes.
 """
 
@@ -23,12 +23,9 @@ class DecisionModel:
         if os.path.exists(os.path.join(artifacts_dir, "ensemble.json")):
             from decide.runtime import EnsembleBackend
             self.backend = EnsembleBackend(artifacts_dir)
-        elif os.path.exists(onnx_path):
+        else:
             from decide.runtime import EncoderBackend
             self.backend = EncoderBackend(artifacts_dir)
-        else:
-            from decide.baseline_runtime import BaselineBackend
-            self.backend = BaselineBackend(artifacts_dir)
         policy_path = os.path.join(artifacts_dir, "policy.json")
         self.policy = {"route_min_conf": 0.5, "approve_min_conf": 0.65, "grounded_min_conf": 0.65,
                        "approve_threshold": APPROVE_THRESHOLD}
