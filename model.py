@@ -20,7 +20,10 @@ class DecisionModel:
     def __init__(self, artifacts_dir: str = "artifacts") -> None:
         self.artifacts_dir = artifacts_dir
         onnx_path = os.path.join(artifacts_dir, "decide.onnx")
-        if os.path.exists(onnx_path):
+        if os.path.exists(os.path.join(artifacts_dir, "ensemble.json")):
+            from decide.runtime import EnsembleBackend
+            self.backend = EnsembleBackend(artifacts_dir)
+        elif os.path.exists(onnx_path):
             from decide.runtime import EncoderBackend
             self.backend = EncoderBackend(artifacts_dir)
         else:

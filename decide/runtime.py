@@ -82,3 +82,57 @@ class EncoderBackend:
 
     def grounded_prob(self, s):
         return self._binary("grounded", s)
+
+
+class EnsembleBackend(EncoderBackend):
+    """Several member networks merged into ONE ONNX graph (fit_ensemble.py).
+
+    Each member is the full shared-encoder + mixture-of-experts model and
+    answers all three decisions; a single session.run computes every member,
+    and the decision's logit is the mean of the members' temperature-scaled
+    logits. ensemble.json lists the members (input/output prefix, tokenizer).
+    """
+
+    def __init__(self, artifacts_dir, threads=None):
+        with open(os.path.join(artifacts_dir, "ensemble.json"), encoding="utf-8") as fh:
+            self.cfg = json.load(fh)
+        so = ort.SessionOptions()
+        so.intra_op_num_threads = threads or int(os.environ.get("DECIDE_THREADS", "4"))
+        so.inter_op_num_threads = 1
+        so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        self.sess = ort.InferenceSession(os.path.join(artifacts_dir, "decide.onnx"), so,
+                                         providers=["CPUExecutionProvider"])
+        self.inputs = {i.name for i in self.sess.get_inputs()}
+        self.toks = []
+        for m in self.cfg["members"]:
+            tk = Tokenizer.from_file(os.path.join(artifacts_dir, m["tok"], "tokenizer.json"))
+            tk.enable_truncation(MAX_LEN)
+            tk.no_padding()
+            self.toks.append(tk)
+        with open(os.path.join(artifacts_dir, "calibration.json"), encoding="utf-8") as fh:
+            self.temp = json.load(fh)
+        self.maps = {}
+
+    def member_logits(self, task, s):
+        """Raw logits of every member for one decision (one session.run)."""
+        a, b, tab = encode_inputs(task, s)
+        feed = {}
+        for m, tk in zip(self.cfg["members"], self.toks):
+            e = tk.encode(a, b)
+            p = m["prefix"]
+            feed.update({
+                p + "input_ids": np.asarray([e.ids], dtype=np.int64),
+                p + "attention_mask": np.asarray([e.attention_mask], dtype=np.int64),
+                p + "token_type_ids": np.asarray([e.type_ids], dtype=np.int64),
+                p + "tab": tab[None],
+                p + "task": np.asarray([TASK_IDS[task]], dtype=np.int64),
+            })
+        feed = {k: v for k, v in feed.items() if k in self.inputs}
+        outs = self.sess.run([m["prefix"] + task for m in self.cfg["members"]], feed)
+        return [o[0] for o in outs]
+
+    def _logits(self, task, s):
+        zs = self.member_logits(task, s)
+        mt = self.cfg["member_temp"]
+        return np.mean([z / mt[i][task] for i, z in enumerate(zs)], axis=0)
