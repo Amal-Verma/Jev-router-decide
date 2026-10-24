@@ -162,11 +162,38 @@ s.addChart(pres.charts.BAR, [{ name: "Dev score", labels: ["Pure NN from scratch
 box(s, "tradeoff-card", 6.1, 1.2, 3.4, 3.6, C.background2);
 s.addText([
   { text: "The trade-off", options: { bold: true, color: C.accent1, breakLine: true } },
-  { text: "The bigger H768 scores +0.8 but runs 2x slower (21 ms p95, grounded 24.7 ms), right at the 25 ms line on an unknown judging CPU.", options: { color: C.text1, breakLine: true } },
+  { text: "The bigger H768 scored 84.5 once, but 83.1 when retrained: its real edge is about +0.2, inside the noise. It runs 2x slower (21\u00A0ms p95), and graph fusion did not speed it up.", options: { color: C.text1, breakLine: true } },
   { text: " ", options: { fontSize: 6, breakLine: true } },
   { text: "We ship the small model: latency is 20% of the score.", options: { bold: true, color: C.text1 } },
 ], { isTextBox: true, objectName: "tradeoff-text", x: 6.3, y: 1.35, w: 3.0, h: 3.3, fontSize: 14, valign: "top", margin: 0 });
-s.addNotes("We also tried Bayesian methods, focal loss, label smoothing, distillation, simpler sharing and newer encoders: none beat the served model by more than the noise. The one real trade-off: the bigger model is slightly more accurate but twice as slow.");
+s.addNotes("The one real trade-off: the bigger H768 model looked better in one run, but retraining showed most of that was luck, and it is twice as slow. Latency is 20% of the score, so we ship the small model.");
+
+// 7. Everything else tested ------------------------------------------------------
+s = pres.addSlide({ masterName: "Content", sectionTitle: "Trade-offs" });
+s.addText("Everything else we tested", { placeholder: "title" });
+const tested = [["MC dropout (Bayesian)", 0.09], ["Ettin-17m (2025) + calibration", 0.08], ["Entropy regularisation", 0.04],
+  ["Augmentation 60%", 0.04], ["Distillation from H768", 0.02], ["Laplace (Bayesian)", -0.23], ["Canonical durations", -0.40],
+  ["Focal loss", -0.46], ["Ettin-32m (2025)", -0.47], ["Label smoothing", -0.61], ["Shared trunk, no experts", -0.99],
+  ["Label cleaning", -1.02], ["Augmentation 30%", -1.22]];
+s.addChart(pres.charts.BAR, [{ name: "Change vs served", labels: tested.map(t => t[0]), values: tested.map(t => t[1]) }], {
+  objectName: "chart-tested", x: 0.4, y: 1.05, w: 5.9, h: 4.2, barDir: "bar",
+  chartColors: [HEX.accent3], showValue: true, dataLabelPosition: "outEnd", dataLabelFormatCode: "+0.00;-0.00",
+  dataLabelColor: HEX.dk1, dataLabelFontSize: 10, dataLabelFontFace: "+mn-lt",
+  catAxisLabelColor: HEX.dk2, catAxisLabelFontSize: 10, catAxisLabelFontFace: "+mn-lt", catAxisOrientation: "maxMin",
+  catAxisLabelPos: "low", valAxisHidden: true, valAxisMinVal: -1.6, valAxisMaxVal: 0.5,
+  valGridLine: { style: "none" }, catGridLine: { style: "none" }, showLegend: false,
+  showTitle: true, title: "Score change vs served model (dev, same seeds)", titleFontSize: 12, titleColor: HEX.dk2, titleFontFace: "+mn-lt",
+});
+box(s, "tested-card", 6.6, 1.2, 2.9, 3.9, C.background2);
+s.addText([
+  { text: "Nothing beats it", options: { bold: true, color: C.accent1, breakLine: true } },
+  { text: "Every gain is within the seed noise (about ±0.5).", options: { color: C.text1, breakLine: true } },
+  { text: " ", options: { fontSize: 6, breakLine: true } },
+  { text: "A from-scratch network scored 77.7 (-5.9): the pretrained encoder is what matters.", options: { color: C.text1, breakLine: true } },
+  { text: " ", options: { fontSize: 6, breakLine: true } },
+  { text: "Cleaning or augmenting labels makes the model overconfident on the noisy test.", options: { color: C.text1 } },
+], { isTextBox: true, objectName: "tested-text", x: 6.8, y: 1.35, w: 2.5, h: 3.6, fontSize: 13, valign: "top", margin: 0 });
+s.addNotes("We tested newer encoders, Bayesian methods, loss functions, preprocessing, label cleaning and data augmentation, each paired on the same seeds. Nothing beats the served model by more than the noise, because the remaining errors are random labels.");
 
 // 7. Conclusion ---------------------------------------------------------------
 pres.addSection({ title: "Close" });

@@ -287,6 +287,7 @@ def main():
     ap.add_argument("--dev_file", default=None, help="overrides <data>/dev.jsonl")
     ap.add_argument("--no_export", action="store_true", help="skip ONNX export (CV runs)")
     ap.add_argument("--arch", default="moe", choices=["moe", "trunk", "linear"])
+    ap.add_argument("--n_experts", type=int, default=4)
     ap.add_argument("--save_all_logits", action="store_true",
                     help="teacher mode: save logits for every training-file row (all_logits.npz, all_ids.json)")
     ap.add_argument("--teacher", default=None, help="dir with a teacher's all_logits.npz / all_ids.json")
@@ -319,7 +320,7 @@ def main():
     print(f"train {len(train)}  calibration {len(cal)}  dev {len(devset)}  device {dev}", flush=True)
 
     tok = AutoTokenizer.from_pretrained(args.base)
-    model = DecideNet(args.base, arch=args.arch).to(dev)
+    model = DecideNet(args.base, n_experts=args.n_experts, arch=args.arch).to(dev)
     teacher = None
     if args.teacher:
         tl = np.load(os.path.join(args.teacher, "all_logits.npz"))
