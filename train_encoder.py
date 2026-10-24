@@ -14,6 +14,7 @@ Runs on GPU when available (Kaggle T4), otherwise CPU. Writes:
     artifacts/policy.json       abstention thresholds
 """
 import argparse
+import re
 import json
 import math
 import os
@@ -104,6 +105,61 @@ def load(p):
 def label_of(task, r):
     y = r["labels"][task]
     return QUEUES.index(y) if task == "route" else float(y)
+
+
+# ---- label-safe data augmentation ------------------------------------------------
+FILLER = re.compile(r"^(hi|hello|hey|thanks|thank you|regards|cheers|best|please advise|let me know|appreciate the help|"
+                    r"any help would be great|sent from my phone|good morning|hi team|hi there)\b", re.I)
+DUR_FORMS = {7: ["7 days", "a week", "one week", "seven days"], 14: ["14 days", "two weeks", "fourteen days"],
+             30: ["30 days", "a month", "thirty days"], 2: ["2 days", "48 hours", "two days"], 1: ["1 day", "24 hours", "one day"],
+             3: ["3 days", "three days"], 5: ["5 days", "five days"], 10: ["10 days", "ten days"], 21: ["21 days", "three weeks"],
+             60: ["60 days", "two months"], 90: ["90 days", "three months"]}
+DUR_RE = re.compile(r"\b(\d+|a|one|two|three|five|seven|ten|fourteen|thirty|forty-eight)\s+(days?|weeks?|months?|hours?)\b", re.I)
+WORDNUM = {"a": 1, "one": 1, "two": 2, "three": 3, "five": 5, "seven": 7, "ten": 10, "fourteen": 14, "thirty": 30, "forty-eight": 48}
+UNIT = {"day": 1, "week": 7, "month": 30, "hour": 1 / 24}
+
+
+def _days(m):
+    n = m.group(1).lower()
+    n = WORDNUM.get(n) if not n.isdigit() else int(n)
+    u = m.group(2).lower().rstrip("s")
+    return None if n is None else n * UNIT[u]
+
+
+def _sentences(t):
+    return [x for x in re.split(r"(?<=[.!?])\s+", t.strip()) if x]
+
+
+def augment(task, r, rng):
+    """Return a new (task, row) with a label-safe change, or None."""
+    st, lab = dict(r["state"]), dict(r["labels"])
+    if task in ("route", "approve"):
+        sents = _sentences(st.get("body") or "")
+        if len(sents) < 2:
+            return None
+        if task == "route":
+            sents = [x for x in sents if not (FILLER.match(x) and rng.random() < 0.5)] or sents
+        rng.shuffle(sents)
+        st["body"] = " ".join(sents)
+    else:
+        draft = st.get("draft_reply") or ""
+        ms = [m for m in DUR_RE.finditer(draft) if _days(m) is not None]
+        if not ms:
+            return None
+        m = rng.choice(ms)
+        d = _days(m)
+        if lab["grounded"] and rng.random() < 0.5 and d in DUR_FORMS:
+            new = rng.choice([f for f in DUR_FORMS[d] if f.lower() != m.group(0).lower()] or [m.group(0)])
+        elif lab["grounded"]:
+            alt = [k for k in DUR_FORMS if k != d and abs(k - d) >= 2]
+            if not alt:
+                return None
+            new = rng.choice(DUR_FORMS[rng.choice(alt)])
+            lab["grounded"] = False
+        else:
+            return None
+        st["draft_reply"] = draft[:m.start()] + new + draft[m.end():]
+    return task, dict(r, state=st, labels=lab, request_id=r["request_id"] + "#aug")
 
 
 def batches(tok, items, bs, shuffle, max_len):
@@ -239,6 +295,8 @@ def main():
     ap.add_argument("--clean_file", default=None,
                     help="JSON {request_id: {task: new_label | null}} applied to the TRAINING part only "
                          "(null drops that task's example); the calibration holdout keeps original labels")
+    ap.add_argument("--augment", type=float, default=0.0,
+                    help="fraction of training items to add as label-safe augmented copies each epoch")
     ap.add_argument("--label_smoothing", type=float, default=0.0)
     ap.add_argument("--focal_gamma", type=float, default=0.0)
     ap.add_argument("--ent_reg", type=float, default=0.0, help="entropy-minimisation weight")
@@ -283,7 +341,8 @@ def main():
         items = cleaned
         print(f"cleaning: dropped {n_drop}, relabelled {n_relabel} task examples", flush=True)
     # batches are grouped per task, so each task rounds up on its own
-    steps = args.epochs * sum(math.ceil(sum(1 for t, _ in items if t == k) / args.bs) for k in TASKS)
+    aug_extra = 1 + args.augment
+    steps = args.epochs * sum(math.ceil(aug_extra * sum(1 for t, _ in items if t == k) / args.bs) + 1 for k in TASKS)
     head_params = [p for n, p in model.named_parameters() if not n.startswith("encoder.")]
     opt = torch.optim.AdamW([
         {"params": model.encoder.parameters(), "lr": args.lr},
@@ -297,7 +356,13 @@ def main():
     for ep in range(args.epochs):
         model.train()
         tot = {t: [0.0, 0] for t in TASKS}
-        for task, enc, tab, y in batches(tok, items, args.bs, True, args.max_len):
+        ep_items = items
+        if args.augment:
+            rng = random.Random(args.seed * 1000 + ep)
+            extra = [a for a in (augment(t, r, rng) for t, r in rng.sample(items, int(args.augment * len(items)))) if a]
+            ep_items = items + extra
+            print(f"  epoch {ep + 1}: +{len(extra)} augmented items", flush=True)
+        for task, enc, tab, y in batches(tok, ep_items, args.bs, True, args.max_len):
             with torch.autocast(device_type=dev, dtype=torch.float16, enabled=dev == "cuda"):
                 res = model(enc["input_ids"].to(dev), enc["attention_mask"].to(dev),
                             enc["token_type_ids"].to(dev), tab.to(dev), enc["task"].to(dev))
