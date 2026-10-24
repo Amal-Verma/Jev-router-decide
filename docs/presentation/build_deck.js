@@ -101,30 +101,39 @@ s.addNotes("Today products call an LLM for these: slow, costly, no usable confid
 pres.addSection({ title: "Approach" });
 s = pres.addSlide({ masterName: "Content", sectionTitle: "Approach" });
 s.addText("One graph: two shared encoders, tiny heads", { placeholder: "title" });
-const steps = [
-  ["ticket +\nquestion", C.background2, C.text1],
-  ["frame input\nper question", C.background2, C.text1],
-  ["MiniLM +\nEttin encoders", C.accent1, C.background1],
-  ["mixture of\n4 experts each", C.accent1, C.background1],
-  ["tiny head\nper question", C.accent2, C.background1],
-  ["average,\ncalibrate,\nabstain", C.background2, C.text1],
-];
-steps.forEach(([t, fill, fg], i) => {
-  const x = 0.5 + i * 1.53;
-  box(s, `step-${i}`, x, 1.35, 1.33, 1.0, fill);
-  s.addText(t, { isTextBox: true, objectName: `step-${i}-text`, x, y: 1.35, w: 1.33, h: 1.0, fontSize: 13, bold: true, color: fg, align: "center", valign: "middle", margin: 0 });
-  if (i < steps.length - 1) s.addShape(pres.shapes.RIGHT_TRIANGLE, { objectName: `arrow-${i}`, x: x + 1.37, y: 1.77, w: 0.12, h: 0.16, rotate: 90, fill: { color: C.accent3 }, line: { color: C.accent3 } });
+const node = (name, x, y, w, h, text, fill, fg, size = 12) => {
+  box(s, name, x, y, w, h, fill);
+  s.addText(text, { isTextBox: true, objectName: name + "-text", x, y, w, h, fontSize: size, bold: true, color: fg, align: "center", valign: "middle", margin: 0 });
+};
+// arrow from (x1,y1) to (x2,y2), drawn as a plain line with an arrow head
+const arrow = (name, x1, y1, x2, y2) => s.addShape(pres.shapes.LINE, {
+  objectName: name, x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.max(0.01, Math.abs(x2 - x1)), h: Math.abs(y2 - y1),
+  flipV: y2 < y1, line: { color: C.accent3, width: 1.25, endArrowType: "triangle" } });
+const rowsY = [1.3, 2.55], rowH = 0.8, inY = 1.72, inH = 1.2;
+node("in", 0.5, inY, 1.2, inH, "ticket +\nquestion", C.background2, C.text1);
+[["MiniLM", "m"], ["Ettin-17m", "e"]].forEach(([enc, k], i) => {
+  const y = rowsY[i], cy = y + rowH / 2;
+  arrow(`in-${k}`, 1.7, inY + inH / 2, 2.0, cy);
+  node(`enc-${k}`, 2.05, y, 1.45, rowH, `${enc}\nencoder`, C.accent1, C.background1);
+  arrow(`enc-moe-${k}`, 3.5, cy, 3.7, cy);
+  node(`moe-${k}`, 3.72, y, 1.6, rowH, "MoE: 4 experts\n+ gate", C.accent1, C.background1);
+  arrow(`moe-heads-${k}`, 5.32, cy, 5.52, cy);
+  node(`heads-${k}`, 5.54, y, 1.35, rowH, "3 tiny heads", C.accent2, C.background1);
+  arrow(`heads-avg-${k}`, 6.89, cy, 7.1, inY + inH / 2);
 });
+node("avg", 7.12, inY, 1.0, inH, "average", C.background2, C.text1);
+arrow("avg-cal", 8.12, inY + inH / 2, 8.3, inY + inH / 2);
+node("cal", 8.32, inY, 1.18, inH, "calibrate,\nabstain,\nanswer", C.background2, C.text1);
 s.addText([{ text: "Teal = shared by all three questions.  ", options: { bold: true, color: C.accent1 } },
-           { text: "Amber = the only per-question part.", options: { bold: true, color: C.accent2 } }],
-          { isTextBox: true, objectName: "legend", x: 0.5, y: 2.5, w: 9.0, h: 0.35, fontSize: 13, margin: 0 });
-const stats3 = [["40 M", "parameters, 10x smaller than Laya"], ["99.99%", "of weights shared by all 3 decisions"], ["1 graph", "92 MB ONNX, one call per request"]];
+           { text: "Amber = one tiny head per question (route, approve, grounded).", options: { bold: true, color: C.accent2 } }],
+          { isTextBox: true, objectName: "legend", x: 0.5, y: 3.5, w: 9.0, h: 0.35, fontSize: 12, margin: 0 });
+const stats3 = [["40 M", "parameters, 10x smaller than Laya"], ["1 graph", "92 MB ONNX, one call per request"], ["4 experts", "per encoder, mixed by a gate"]];
 stats3.forEach(([big, small], i) => {
   const x = 0.5 + i * 3.05;
-  s.addText(big, { isTextBox: true, objectName: `stat3-${i}`, x, y: 3.15, w: 2.85, h: 0.8, fontSize: 40, bold: true, color: C.accent1, margin: 0 });
-  s.addText(small, { isTextBox: true, objectName: `stat3-${i}-label`, x, y: 3.95, w: 2.85, h: 0.45, fontSize: 14, color: C.text2, margin: 0 });
+  s.addText(big, { isTextBox: true, objectName: `stat3-${i}`, x, y: 3.95, w: 2.85, h: 0.65, fontSize: 32, bold: true, color: C.accent1, margin: 0 });
+  s.addText(small, { isTextBox: true, objectName: `stat3-${i}-label`, x, y: 4.6, w: 2.85, h: 0.4, fontSize: 13, color: C.text2, margin: 0 });
 });
-s.addNotes("Each question is framed for what it compares: route reads the ticket, approve also gets tier and amount features, grounded reads article and draft side by side. Two encoders, MiniLM and the 2025 Ettin-17m, each with shared experts, run in one ONNX graph and their calibrated outputs are averaged. Everything in teal is shared by all three decisions; a fourth decision is one more tiny head per encoder.");
+s.addNotes("Every request goes to two encoders in one graph: MiniLM and the 2025 Ettin-17m. Each feeds its own mixture of 4 shared experts, and a gate picks the mix for the question being asked. Each question then has one tiny head. The two encoders' calibrated answers are averaged, then the abstain rule decides whether to answer or hand off to a human. Adding a fourth decision is one more tiny head.");
 
 // 4. Results ---------------------------------------------------------------
 pres.addSection({ title: "Results" });
