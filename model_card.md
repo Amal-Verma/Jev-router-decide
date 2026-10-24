@@ -47,6 +47,12 @@ served.
 Dev (83.75) sits inside the fold range, so it is a fair preview of the hidden
 test.
 
+**Precision.** The served model is int8 (dynamic quantisation of the fp32 export).
+The dev score, latency and schema results come from the int8 model. The
+cross-validation and policy experiments use fp32 predictions saved during GPU
+training. On the same dev split the two agree within about 0.4 points (83.38 fp32
+against 83.75 int8).
+
 **Latency** (self-check, one request at a time, quiet 8-thread laptop i5, ONNX
 Runtime with 4 threads): p50 / p95 = route 7.6 / 11.3 ms, approve 8.7 / 12.3 ms,
 grounded 10.7 / 13.8 ms.

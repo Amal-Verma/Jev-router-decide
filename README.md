@@ -135,6 +135,7 @@ one decision does not pay for that.
 
 ## Docs
 
+- `docs/EXPLAINED.md`: **start here**, a plain-language guide from the problem to every number
 - `docs/report/report.pdf`: 4-page technical report (LaTeX source alongside)
 - `docs/ARCHITECTURE.md`: diagrams of the model, request path, training and policy
 - `docs/API.md`: request and response reference
