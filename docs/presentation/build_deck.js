@@ -116,7 +116,7 @@ node("in", 0.5, inY, 1.2, inH, "ticket +\nquestion", C.background2, C.text1);
   arrow(`in-${k}`, 1.7, inY + inH / 2, 2.0, cy);
   node(`enc-${k}`, 2.05, y, 1.45, rowH, `${enc}\nencoder`, C.accent1, C.background1);
   arrow(`enc-moe-${k}`, 3.5, cy, 3.7, cy);
-  node(`moe-${k}`, 3.72, y, 1.6, rowH, "MoE: 4 experts\n+ gate", C.accent1, C.background1);
+  node(`moe-${k}`, 3.72, y, 1.6, rowH, "Mixture of\nexperts + gate", C.accent1, C.background1);
   arrow(`moe-heads-${k}`, 5.32, cy, 5.52, cy);
   node(`heads-${k}`, 5.54, y, 1.35, rowH, "3 tiny heads", C.accent2, C.background1);
   arrow(`heads-avg-${k}`, 6.89, cy, 7.1, inY + inH / 2);
@@ -127,13 +127,13 @@ node("cal", 8.32, inY, 1.18, inH, "calibrate,\nabstain,\nanswer", C.background2,
 s.addText([{ text: "Teal = shared by all three questions.  ", options: { bold: true, color: C.accent1 } },
            { text: "Amber = one tiny head per question (route, approve, grounded).", options: { bold: true, color: C.accent2 } }],
           { isTextBox: true, objectName: "legend", x: 0.5, y: 3.5, w: 9.0, h: 0.35, fontSize: 12, margin: 0 });
-const stats3 = [["40 M", "parameters, 10x smaller than Laya"], ["1 graph", "92 MB ONNX, one call per request"], ["4 experts", "per encoder, mixed by a gate"]];
+const stats3 = [["40 M", "parameters, 10x smaller than Laya"], ["1 graph", "92 MB ONNX, one call per request"]];
 stats3.forEach(([big, small], i) => {
   const x = 0.5 + i * 3.05;
   s.addText(big, { isTextBox: true, objectName: `stat3-${i}`, x, y: 3.95, w: 2.85, h: 0.65, fontSize: 32, bold: true, color: C.accent1, margin: 0 });
   s.addText(small, { isTextBox: true, objectName: `stat3-${i}-label`, x, y: 4.6, w: 2.85, h: 0.4, fontSize: 13, color: C.text2, margin: 0 });
 });
-s.addNotes("Every request goes to two encoders in one graph: MiniLM and the 2025 Ettin-17m. Each feeds its own mixture of 4 shared experts, and a gate picks the mix for the question being asked. Each question then has one tiny head. The two encoders' calibrated answers are averaged, then the abstain rule decides whether to answer or hand off to a human. Adding a fourth decision is one more tiny head.");
+s.addNotes("Every request goes to two encoders in one graph: MiniLM and the 2025 Ettin-17m. Each feeds its own mixture of shared experts, and a gate picks the mix for the question being asked. Each question then has one tiny head. The two encoders' calibrated answers are averaged, then the abstain rule decides whether to answer or hand off to a human. Adding a fourth decision is one more tiny head.");
 
 // 4. Results ---------------------------------------------------------------
 pres.addSection({ title: "Results" });
