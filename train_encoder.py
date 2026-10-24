@@ -49,6 +49,8 @@ class DecideNet(nn.Module):
         self.arch = arch
         self.encoder = AutoModel.from_pretrained(base)
         h = self.encoder.config.hidden_size
+        # ModernBERT-style encoders (e.g. Ettin) have no segment embeddings.
+        self.use_tt = getattr(self.encoder.config, "type_vocab_size", 0) > 1
         self.task_emb = nn.Embedding(len(TASKS), 32)
         self.tab = nn.Sequential(nn.Linear(N_TAB, 64), nn.GELU())
         if arch == "moe":
@@ -70,8 +72,8 @@ class DecideNet(nn.Module):
         self.grounded_head = nn.Linear(d, 1)
 
     def encode(self, input_ids, attention_mask, token_type_ids):
-        out = self.encoder(input_ids=input_ids, attention_mask=attention_mask,
-                           token_type_ids=token_type_ids).last_hidden_state
+        kw = {"token_type_ids": token_type_ids} if self.use_tt else {}
+        out = self.encoder(input_ids=input_ids, attention_mask=attention_mask, **kw).last_hidden_state
         m = attention_mask.unsqueeze(-1).to(out.dtype)
         return (out * m).sum(1) / m.sum(1).clamp(min=1.0)
 
@@ -234,6 +236,9 @@ def main():
     ap.add_argument("--teacher", default=None, help="dir with a teacher's all_logits.npz / all_ids.json")
     ap.add_argument("--distill_alpha", type=float, default=0.5)
     ap.add_argument("--distill_T", type=float, default=2.0)
+    ap.add_argument("--clean_file", default=None,
+                    help="JSON {request_id: {task: new_label | null}} applied to the TRAINING part only "
+                         "(null drops that task's example); the calibration holdout keeps original labels")
     ap.add_argument("--label_smoothing", type=float, default=0.0)
     ap.add_argument("--focal_gamma", type=float, default=0.0)
     ap.add_argument("--ent_reg", type=float, default=0.0, help="entropy-minimisation weight")
@@ -263,8 +268,22 @@ def main():
         tid = {r: i for i, r in enumerate(json.load(open(os.path.join(args.teacher, "all_ids.json"))))}
         teacher = (tl, tid)
     items = [(t, r) for r in train for t in TASKS]
+    if args.clean_file:
+        fix = json.load(open(args.clean_file))
+        cleaned, n_drop, n_relabel = [], 0, 0
+        for t, r in items:
+            ch = fix.get(r["request_id"], {})
+            if t not in ch:
+                cleaned.append((t, r))
+            elif ch[t] is None:
+                n_drop += 1
+            else:
+                r2 = dict(r, labels=dict(r["labels"], **{t: ch[t]}))
+                cleaned.append((t, r2)); n_relabel += 1
+        items = cleaned
+        print(f"cleaning: dropped {n_drop}, relabelled {n_relabel} task examples", flush=True)
     # batches are grouped per task, so each task rounds up on its own
-    steps = args.epochs * len(TASKS) * math.ceil(len(train) / args.bs)
+    steps = args.epochs * sum(math.ceil(sum(1 for t, _ in items if t == k) / args.bs) for k in TASKS)
     head_params = [p for n, p in model.named_parameters() if not n.startswith("encoder.")]
     opt = torch.optim.AdamW([
         {"params": model.encoder.parameters(), "lr": args.lr},
@@ -348,7 +367,10 @@ def main():
         return
     model = model.float().cpu().eval()
     tok.save_pretrained(os.path.join(args.out, "tok"))
-    export_onnx(model, tok, args.out, args.max_len)
+    try:
+        export_onnx(model, tok, args.out, args.max_len)
+    except Exception as e:                       # keep the logits even if export fails
+        print("ONNX export failed:", type(e).__name__, str(e)[:300], flush=True)
 
 
 def export_onnx(model, tok, out, max_len):
