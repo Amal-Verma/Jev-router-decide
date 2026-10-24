@@ -29,6 +29,25 @@ python train_encoder.py --data data --out artifacts --base cross-encoder/ms-marc
 Each run writes `decide.onnx` (int8), `tok/`, `calibration.json` (one
 temperature per head), and `cal_logits.npz` / `dev_logits.npz`.
 
+### The served ensemble
+
+The served model has two members, each trained as above on `train.jsonl` with
+seed 13: `--base cross-encoder/ms-marco-MiniLM-L6-v2` and
+`--base jhu-clsp/ettin-encoder-17m`. The MiniLM member is served int8. The
+Ettin member must be kept at fp32 (the fp32 export before `quantize_dynamic`),
+because int8 changes up to 19% of its answers. The two graphs are merged into
+one `decide.onnx` with input and output names prefixed `m_` and `e_`, the
+tokenizers go to `tok_m/` and `tok_e/`, and then:
+
+```bash
+python fit_ensemble.py <ensemble dir> data/train.jsonl   # ensemble.json, calibration.json, policy.json
+```
+
+This fits the member and final temperatures and the abstention thresholds on
+the 1,000-row train holdout (`cal_ids.json`), never dev. Note: the committed
+`train_encoder.py` deletes its fp32 export after quantising, and the merge step
+is not a committed script.
+
 ## 3. Abstention policy
 
 ```bash
@@ -40,12 +59,12 @@ calibration holdout (never dev), targeting 85% coverage.
 
 ## 4. Install and score
 
-Copy `decide.onnx`, `tok/`, `calibration.json` and `policy.json` into
-`artifacts/`, start the server and run `python selfcheck.py --url
+Copy `decide.onnx`, the tokenizer folders, `ensemble.json` (ensemble only),
+`calibration.json` and `policy.json` into `artifacts/`, start the server and run `python selfcheck.py --url
 http://localhost:8000/v1/decide`.
 
 ## Baseline
 
 `python train_baseline.py` builds the gate-1 TF-IDF + LR/LightGBM model
-(`artifacts/baseline.pkl`, committed as the fallback). `model.py` uses it only when
-`artifacts/decide.onnx` is missing.
+(`baseline/baseline.pkl`). It is kept for comparison only; the service does not
+load it.

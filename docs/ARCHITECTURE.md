@@ -2,9 +2,13 @@
 
 ## 1. One model, three decisions
 
-Every request runs through the same encoder and the same experts. The decision
-type only changes how the input is framed, which task embedding the gate sees,
-and which output head's logit is read.
+The served model is an ensemble of two members in one ONNX graph: MiniLM-L6-H384
+(int8) and Ettin-17m (fp32). Each member has the structure below, and one
+`session.run` computes both. Inside each member, every request runs through the
+same encoder and the same experts. The decision type only changes how the input
+is framed, which task embedding the gate sees, and which output head's logit is
+read. The two members' temperature-scaled logits are averaged, then a final
+temperature is applied (`decide/runtime.py` `EnsembleBackend`).
 
 ```mermaid
 flowchart LR
@@ -14,9 +18,9 @@ flowchart LR
         A2["approve<br/>(tier + amount + subject, body)<br/>+ tabular features"]
         A3["grounded<br/>(kb_article, draft_reply)"]
     end
-    subgraph SH["Shared (one ONNX graph)"]
+    subgraph SH["Shared, inside each member"]
         direction TB
-        ENC["MiniLM-L6-H384 encoder"] --> POOL["mean pool"]
+        ENC["encoder<br/>(MiniLM-L6-H384 or Ettin-17m)"] --> POOL["mean pool"]
         POOL --> GATE["gate"]
         TASK["task embedding"] --> GATE
         POOL --> EXP["experts 1..4"]
@@ -50,12 +54,12 @@ sequenceDiagram
     C->>A: POST /v1/decide {decision, state}
     A->>M: route / approve / grounded(state)
     M->>R: frame input, tokenize (Rust tokenizers)
-    R->>R: one forward pass, int8, 4 threads
-    R-->>M: logit for the requested head
-    M->>M: divide by temperature, softmax / sigmoid
+    R->>R: one session.run: both members, 4 threads
+    R-->>M: each member's logit for the requested head
+    M->>M: member temperatures, average, final temperature, softmax / sigmoid
     M->>M: commit value, set abstain flag
     M-->>A: (value, probs or p_true, abstain)
-    A-->>C: typed JSON + latency_ms (about 12 ms p50)
+    A-->>C: typed JSON + latency_ms (about 14 ms p50 on a busy laptop)
 ```
 
 ## 3. Approve and abstention logic
@@ -72,8 +76,8 @@ flowchart TD
 
 The thresholds come from `artifacts/policy.json`, set on the training
 holdout so about 85% of requests are answered (target 80%). `route` abstains
-when its top-queue probability is under 0.90; `grounded` when
-max(p, 1-p) is under 0.975.
+when its top-queue probability is under 0.892; `grounded` when
+max(p, 1-p) is under 0.9957.
 
 What the approve head learned from the labels:
 
@@ -91,13 +95,13 @@ flowchart LR
 ```mermaid
 flowchart LR
     D["train.jsonl<br/>6,500"] --> SP{"split"}
-    SP -->|5,500| TR["multi-task fine-tune<br/>Kaggle T4, 5 epochs,<br/>one task per batch"]
-    SP -->|1,000 holdout| CAL["temperature per head<br/>+ abstention thresholds"]
+    SP -->|5,500| TR["multi-task fine-tune, per member<br/>Kaggle T4, 5 epochs, seed 13,<br/>one task per batch"]
+    SP -->|1,000 holdout| CAL["fit_ensemble.py: member + final<br/>temperatures, abstention thresholds"]
     TR --> CAL
-    TR --> EX["export ONNX<br/>+ int8 dynamic quantisation"]
-    CAL --> ART["artifacts/<br/>decide.onnx 24 MB<br/>calibration.json, policy.json"]
+    TR --> EX["export ONNX: MiniLM int8,<br/>Ettin fp32; merge into one graph"]
+    CAL --> ART["artifacts/<br/>decide.onnx 92 MB<br/>ensemble.json, calibration.json, policy.json"]
     EX --> ART
     CV["4-fold CV<br/>(evaluation only)"] -.->|"chose epochs, approve band"| TR
-    DEV["dev.jsonl 1,500<br/>(never trained on)"] -.->|"reporting"| SC["selfcheck.py<br/>83.75"]
+    DEV["dev.jsonl 1,500<br/>(never trained on)"] -.->|"reporting"| SC["selfcheck.py<br/>85.44"]
     ART --> SC
 ```

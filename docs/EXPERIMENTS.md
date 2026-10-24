@@ -5,7 +5,7 @@ Every number here was measured in this project with the judges' own scoring code
 Totals are out of 100. Weights: quality 40%, calibration 25%, latency 20%,
 abstention 15%.
 
-## 1. Full self-check on the public dev split (served int8 model, CPU)
+## 1. Full self-check on the public dev split (CPU)
 
 These are end-to-end runs through the real web service.
 
@@ -13,12 +13,13 @@ These are end-to-end runs through the real web service.
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | Classical baseline: TF-IDF + logistic regression (route, grounded), LightGBM + tabular features (approve) | train | 78.45 | 0.783 | 0.760 | 1.000 | 0.542 | 22.5 ms | gate-1 baseline |
 | 2 | H384 MiniLM + mixture of experts, symmetric abstention | train | 83.76 | 0.850 | 0.856 | 1.000 | 0.558 | ~24 ms (busy machine) | superseded by #3 |
-| 3 | **H384 MiniLM + mixture of experts, lopsided approve band (served)** | **train** | **83.75** | 0.849 | 0.856 | 1.000 | 0.558 | **10.7 ms** (quiet) | **served** |
+| 3 | H384 MiniLM + mixture of experts, lopsided approve band | train | 83.75 | 0.849 | 0.856 | 1.000 | 0.558 | 10.7 ms (quiet) | served until the final ensemble (#9) |
 | 4 | H768 NLI MiniLM + mixture of experts | train | 84.52 | 0.846 | 0.849 | 1.000 | 0.632 | 21.3 ms (quiet) | +0.77, but 2x slower; grounded p95 24.7 ms sits at the 25 ms line |
 | 5 | Same as #4, machine busy | train | 73.65 | 0.828 | 0.849 | 0.492 | 0.632 | 63 ms | shows the latency risk |
 | 6 | H384 MiniLM + mixture of experts, retrained on train + dev | train + dev | 87.55 | 0.876 | 0.883 | 1.000 | 0.695 | 10.8 ms | **rejected**: inflated, dev was in training |
 | 7 | Ensemble: H384 MiniLM + MoE and Ettin-17m + MoE, merged into one ONNX graph | train | 82.78 | 0.846 | 0.821 | 1.000 | 0.562 | 16.8 ms | not served: -0.97 against #3 in the same back-to-back run, mostly calibration |
 | 8 | Same as #7, machine busy (load 5.7 to 7.5) | train | 82.20 | 0.846 | 0.821 | 0.971 | 0.562 | 27.2 ms | latency drops below full marks |
+| 9 | **Ensemble: MiniLM + MoE (int8) and Ettin-17m + MoE (fp32), one merged graph** | **train** | **85.44** | 0.858 | 0.869 | 1.000 | 0.627 | **20.4 ms** (busy, load 3.5 to 4.5) | **served** (section 6) |
 
 The same served model (#3) measured 78.26 while the machine was busy (load 11):
 quality, calibration and abstention were identical, and only latency dropped (p95 46 ms).
@@ -68,10 +69,10 @@ Evaluation-only models, never served. fp32, H384 + mixture of experts.
 | served setup (H384 MiniLM + MoE) | 82.57 ± 1.29 |
 | ensemble, MiniLM + Ettin-17m | **83.13 ± 0.53** |
 
-Cross-validation favoured the ensemble by +0.56, but on the dev split the served model
-scored 83.75 against 82.78 (section 1, rows #3 and #7) and runs about 1.6x faster. The
-decision rule fixed in advance was to serve the ensemble only if its dev total was within
-0.2 of the served model; it was not, so the single MiniLM model stays served.
+Cross-validation favoured the ensemble by +0.56, with less spread. At first, on the dev
+split, the single MiniLM model scored 83.75 against 82.78 for the ensemble (section 1,
+rows #3 and #7), so the single model stayed served. Section 6 explains why that ensemble
+was weak (its Ettin member was int8) and how the fixed ensemble became the served model.
 
 ### Article-aware routing (test of a found signal)
 
@@ -164,9 +165,70 @@ changed outputs. H768 cannot be made meaningfully faster without changing the mo
 
 ### Conclusion
 
-No method beats the served model by more than the noise. Bayesian methods model
-weight uncertainty, but the remaining errors come from random labels (section 4),
-which no training method can learn. The served model stays H384 + MoE + temperature.
+No training or calibration method beats H384 + MoE + temperature by more than the
+noise. Bayesian methods model weight uncertainty, but the remaining errors come from
+random labels (section 4), which no training method can learn. The one change that
+did help is the ensemble with Ettin-17m, once Ettin is kept at full precision
+(section 6).
+
+## 6. The int8 discovery and the final ensemble
+
+### Ettin does not survive int8
+
+The ensemble in section 1 (#7) used both members in int8, as every model here had been
+served. Comparing each member's int8 graph with its fp32 graph on the same inputs showed
+the problem:
+
+| Member | Share of cases where int8 and fp32 give the same answer |
+|---|---|
+| MiniLM-L6-H384 + MoE | 99.7 to 100% across the three decisions |
+| Ettin-17m + MoE | route 91%, approve 92%, grounded 81% |
+
+Dynamic int8 quantisation leaves MiniLM essentially unchanged but changes up to a fifth
+of Ettin's answers. So the earlier ensembles were judged with a damaged Ettin member.
+
+### Full self-check on dev (same selfcheck, train-only models)
+
+| Model | Total | Note |
+|---|---|---|
+| MiniLM + MoE alone (int8, previously served) | 83.75 | mean p95 10.7 ms |
+| Ettin-17m + MoE alone, fp32 | 84.68 | mean p95 12.7 ms, but approve coverage 0.790 (under 80%) |
+| MiniLM + Ettin-17m, Ettin int8 | 82.24 | int8 breaks Ettin |
+| MiniLM + Ettin-17m, earlier ensemble with a different Ettin run | 82.78 | row #7 |
+| **MiniLM (int8) + Ettin-17m (fp32), one merged graph (served)** | **85.44** | mean p95 20.4 ms on a busy laptop |
+
+Served ensemble in detail: quality 0.858, calibration 0.869, latency 1.000, abstention
+0.627; route macro-F1 0.9471, approve cost 0.1786, grounded macro-F1 0.9983, mean ECE
+0.0141, Brier skill 0.8086; coverage route 0.838, approve 0.829, grounded 0.837;
+4,500 of 4,500 valid. p95 per decision: route 18.1, approve 19.8, grounded 23.3 ms,
+measured with load average 3.5 to 4.5. A fresh-venv `scripts/verify_submission.sh` run
+gave PASS, 85.44, mean p95 23.0 ms under similar load.
+
+How it is built: both members are trained on `train.jsonl` only (seed 13) and calibrated
+on the same 1,000-row train holdout. Each member is a full shared-backbone model that
+answers all three decisions. One `session.run` computes both; the decision's logit is the
+mean of the two members' temperature-scaled logits, then a final temperature
+(`decide/runtime.py` `EnsembleBackend`, `artifacts/ensemble.json`, `fit_ensemble.py`).
+Dev is never used for training or fitting. The Ettin member is a deterministic rerun of an
+earlier Ettin training run (same code, seed 13); three reruns reproduced it exactly.
+
+### How much of the dev score is luck
+
+| 4-fold cross-validation (fresh fp32 models per fold) | Total |
+|---|---|
+| MiniLM alone | 82.57 ± 1.29 |
+| Ettin-17m alone | 81.85 (mean) |
+| **MiniLM + Ettin-17m ensemble** | **83.13 ± 0.53** |
+
+The ensemble is the best and steadiest option in cross-validation, but its +1.69 on dev
+is larger than its +0.56 in cross-validation, so the dev 85.44 is partly a favourable
+Ettin run. An honest hidden-test expectation is roughly 83 to 85.
+
+### Latency risk
+
+Mean p95 is about 20 to 23 ms on a busy laptop, under the 25 ms full-marks line but with
+less headroom than the single MiniLM model (10.7 ms). The judging host should be kept
+otherwise idle.
 
 Literature consulted: Geifman and El-Yaniv 2017 and the selective classification
 benchmark (arXiv 2401.12708); Mukhoti et al. 2020 (arXiv 2002.09437); Feng et al.

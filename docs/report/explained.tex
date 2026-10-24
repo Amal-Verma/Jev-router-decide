@@ -63,8 +63,8 @@ You send one ticket and name \textbf{one} question:
     "body": "Hi, I was charged $45.00 for a month I didn't use. Can you refund it?",
     "customer_tier": "pro",
     "amount": 45.0,
-    "draft_reply": "Refunds can be requested within 30 days of the charge, so I have put yours through...",
-    "kb_article": "Refunds may be requested within 30 days of the charge, and this applies to all plans..." } }
+    "draft_reply": "You can request a refund within 60 days of the charge on any plan. Once approved, the money goes back to your original payment method within 10 business days.",
+    "kb_article": "Refunds may be requested within 30 days of the charge, and this applies to all plans. Approved refunds are returned to the original payment method within 10 business days." } }
 \end{lstlisting}
 
 \noindent\begin{tabularx}{\linewidth}{@{}lL@{}}
@@ -87,9 +87,9 @@ Field & Meaning \\
 \toprule
 Question & Output & Meaning \\
 \midrule
-\texttt{route} & \texttt{billing}, confidence 0.906, plus probabilities for all 5 queues & send to billing, 91\% sure \\
-\texttt{approve} & \texttt{true}, $p$ = 0.889, abstain false & auto-approve: pro tier, \$45 is under the about \$120 limit, no red flags \\
-\texttt{grounded} & \texttt{false}, $p$ = 0.026, abstain true & the draft says the refund is done; the article only says refunds \emph{may be requested} \\
+\texttt{route} & \texttt{billing}, confidence 0.888, abstain true, plus probabilities for all 5 queues & billing, 89\% sure; just under the 0.892 bar, so a human confirms \\
+\texttt{approve} & \texttt{true}, $p$ = 0.883, abstain false & auto-approve: pro tier, \$45 is under the about \$120 limit, no red flags \\
+\texttt{grounded} & \texttt{false}, $p$ = 0.055, abstain true & the draft says 60 days; the article says 30 \\
 \bottomrule
 \end{tabularx}
 
@@ -148,64 +148,87 @@ Abstention & 15\% & does your confidence point at your own mistakes? \\
 \end{tabularx}
 
 \section{The architecture, step by step}
+The served model is an \textbf{ensemble}: two complete models that each answer all three
+questions, packed into \textbf{one} ONNX file and computed in \textbf{one} call.
+
 \begin{center}
 \resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[node distance=4mm]
   \node[box] (a) {request};
   \node[box, right=of a] (b) {framing};
-  \node[box, right=of b] (c) {tokenizer};
-  \node[sbox, right=of c] (d) {encoder\\22.6\,M};
-  \node[sbox, right=of d] (e) {experts\\+ gate};
-  \node[hbox, right=of e] (f) {head};
-  \node[box, right=of f] (g) {calibration};
+  \node[box, right=of b, yshift=7mm] (c1) {tokenizer};
+  \node[box, right=of b, yshift=-7mm] (c2) {tokenizer};
+  \node[sbox, right=of c1] (d1) {MiniLM encoder\\22.6\,M, int8};
+  \node[sbox, right=of c2] (d2) {Ettin encoder\\16.8\,M, fp32};
+  \node[sbox, right=of d1] (e1) {experts\\+ gate};
+  \node[sbox, right=of d2] (e2) {experts\\+ gate};
+  \node[hbox, right=of e1] (f1) {head};
+  \node[hbox, right=of e2] (f2) {head};
+  \node[box, right=of f1, yshift=-7mm] (g) {average +\\calibration};
   \node[box, right=of g] (h) {policy};
   \node[box, right=of h] (i) {answer};
-  \foreach \x/\y in {a/b,b/c,c/d,d/e,e/f,f/g,g/h,h/i} \draw[arr] (\x) -- (\y);
+  \foreach \x/\y in {a/b,b/c1,b/c2,c1/d1,c2/d2,d1/e1,d2/e2,e1/f1,e2/f2,f1/g,f2/g,g/h,h/i} \draw[arr] (\x) -- (\y);
 \end{tikzpicture}}
 \end{center}
-\noindent Blue parts are shared by all three questions; the amber head is per question.
+\noindent Blue parts are shared by all three questions inside each member; the amber
+heads are per question.
 
 \begin{enumerate}
   \item \textbf{Framing} (\texttt{decide/inputs.py}). Each question sees what it needs.
         Route reads subject + body. Approve reads ``pro plan, amount \$45. subject'' + body,
-        plus 75 numbers (tier, amount above each cutoff, red flags). Grounded reads
-        kb\_article + draft\_reply side by side, plus 3 numbers (do the durations match?).
-  \item \textbf{Tokenizer.} Words become IDs from a 30{,}000-piece dictionary:
-        ``refunds'' becomes \texttt{ref}, \texttt{\#\#unds}.
-  \item \textbf{Encoder} (MiniLM, 6 Transformer layers, 22.6\,M weights). Every word
-        looks at every other word (attention), so meaning comes from context. The output
-        is averaged into one summary of 384 numbers. \textbf{Shared by all questions.}
-  \item \textbf{Mixture of experts} (4 expert layers + a gate, 0.5\,M weights). The gate
+        plus numbers for tier, amount above each cutoff and red flags. Grounded reads
+        kb\_article + draft\_reply side by side, plus numbers for whether the durations match.
+  \item \textbf{Tokenizers.} Words become IDs. Each member has its own dictionary
+        (\texttt{artifacts/tok\_m}, \texttt{artifacts/tok\_e}).
+  \item \textbf{Encoders.} Every word looks at every other word (attention), so meaning
+        comes from context. The output is averaged into one summary. Member 1 is MiniLM
+        (6 layers, 384 numbers wide, 22.6\,M weights, stored as int8). Member 2 is
+        Ettin-17m (7 layers, 256 wide, 16.8\,M weights, kept at full precision).
+        \textbf{Each encoder is shared by all questions.}
+  \item \textbf{Mixture of experts}, one per member (4 expert layers + a gate). The gate
         decides how much to trust each expert for this question. \textbf{Shared.}
-  \item \textbf{Head.} One tiny layer per question gives the raw score: route 5 scores
-        (1{,}285 weights), approve 1 score (257), grounded 1 score (257). This is the
-        only per-question part.
-  \item \textbf{Calibration.} Divide by a temperature (route 1.18, approve 1.01,
-        grounded 1.23), then softmax (route) or sigmoid (binary) to get honest probabilities.
+  \item \textbf{Heads.} One tiny layer per question per member gives the raw score: route
+        5 scores (1{,}285 weights), approve 1 score (257), grounded 1 score (257). This is
+        the only per-question part.
+  \item \textbf{Averaging and calibration.} Each member's raw score is divided by its own
+        temperature, the two are averaged, and the average is divided by a final
+        temperature (route 1.00, approve 0.96, grounded 0.84). Softmax (route) or sigmoid
+        (binary) then gives honest probabilities.
   \item \textbf{Policy} (\texttt{model.py}): commit to an answer and decide whether to
         abstain (Section~\ref{sec:abstain}).
 \end{enumerate}
-\noindent\textbf{Size:} about 23.07\,M parameters, 99.99\% shared. That is about 18 times
-smaller than the 421\,M Laya model the brief mentions.
+\noindent\textbf{Size:} about 40.2\,M parameters (23.07\,M MiniLM member + 17.17\,M Ettin
+member), over 99.99\% shared across the three questions. That is about 10 times smaller
+than the 421\,M Laya model the brief mentions.
+
+\paragraph{Why two members?} They make different mistakes, so averaging helps. In 4-fold
+cross-validation the pair scored 83.13\,$\pm$\,0.53 against 82.57\,$\pm$\,1.29 for MiniLM
+alone. The price is about twice the latency.
 
 \section{How \texttt{grounded} is calculated}
-Same article, three drafts, real numbers from the served model:
+Same article as in Section 2, three drafts, real numbers from the served model:
 
 \medskip
-\noindent\begin{tabularx}{\linewidth}{@{}Lrrp{4.8cm}@{}}
+\noindent\begin{tabularx}{\linewidth}{@{}Lrrrp{3.2cm}@{}}
 \toprule
-Draft & Raw score & $p$ & Why \\
+Draft & MiniLM raw & Ettin raw & $p$ & Why \\
 \midrule
-``\ldots{} I have put yours through'', 30 days, 10 business days & $-4.47$ & 0.03 & claims the refund is approved; the article never says so \\
-faithful rewrite: 30 days, approved refunds, 10 business days & $+12.98$ & 1.00 & everything is supported \\
-faithful rewrite but ``60 days'' & $-2.10$ & 0.15 & wrong number \\
+faithful rewrite: 30 days, any plan, 10 business days & $+11.91$ & $+13.10$ & 1.00 & everything is supported \\
+same, but ``60 days'' & $-1.90$ & $-3.70$ & 0.06 & wrong number \\
+same, but ``3 business days'' & $-6.96$ & $-13.58$ & 0.00003 & wrong number \\
 \bottomrule
 \end{tabularx}
 
 \medskip
-\noindent For the first draft: $-4.47 \div 1.233 = -3.62$, and the sigmoid of $-3.62$ is
-0.026. The value is $0.026 > 0.5$, which is false. Abstain asks whether
-$\max(0.026, 0.974) < 0.975$, which is just true.
+\noindent For the ``60 days'' draft: MiniLM $-1.90 \div 1.216 = -1.56$ and Ettin
+$-3.70 \div 1.149 = -3.22$; their average is $-2.39$; divided by the final temperature
+0.842 that is $-2.84$, and the sigmoid of $-2.84$ is 0.055. The value is $0.055 > 0.5$,
+which is false. Abstain asks whether $\max(0.055, 0.945) < 0.9957$, which is true.
+
+\paragraph{What it misses.} Drafts that invent an action (``so I have put yours
+through'') or narrow the scope (``but only on the enterprise plan'') were both scored as
+grounded ($p$ about 1.00). The model learned the kinds of mismatch in the training data,
+which are mostly changed numbers.
 
 \section{Abstention}\label{sec:abstain}
 Abstention is the model saying ``not sure, let a human decide''. It works in two separate
@@ -223,30 +246,34 @@ ways:
 \toprule
 Decision & error, all cases & error, most confident 80\% \\
 \midrule
-route & 10.9\% & 5.6\% \\
-approve & 9.9\% & 5.7\% \\
-grounded & 2.9\% & 0.7\% \\
+route & 10.7\% & 5.1\% \\
+approve & 10.5\% & 6.0\% \\
+grounded & 1.2\% & 0.08\% \\
 \bottomrule
 \end{tabular}
 \end{center}
-Our abstention score is 0.56. It is capped by noisy labels and hidden account history:
+Our abstention score is 0.63. It is capped by noisy labels and hidden account history:
 some mistakes look certain because nothing in the ticket reveals them.
 
 Thresholds (\texttt{artifacts/policy.json}): route abstains when its top probability is
-under 0.90; grounded when it is under 97.5\% sure either way; approve when
+under 0.892; grounded when it is under 99.57\% sure either way; approve when
 $0.15 < p < 0.79$. That band is lopsided because risky approvals are the costly mistakes.
 
 \section{Training}
 \begin{enumerate}
-  \item 6{,}500 tickets from \texttt{train.jsonl}: 5{,}500 to train, 1{,}000 held out.
-        \textbf{Dev is never trained on.}
+  \item 6{,}500 tickets from \texttt{train.jsonl}: 5{,}500 to train, 1{,}000 held out (the
+        same rows for both members). \textbf{Dev is never used for training or fitting.}
   \item Each ticket becomes 3 training items (one per question), 16{,}500 in total.
   \item Batches of 32 items from one question pass through the model. The error (loss)
-        is measured and all 23\,M weights are nudged to reduce it. Because the encoder is
-        shared, every question improves the same brain.
-  \item 5 passes over the data, about 3 minutes on a free Kaggle T4 GPU.
-  \item Temperatures and abstain thresholds are fitted on the 1{,}000 held-out tickets.
-  \item Export to ONNX and compress to int8.
+        is measured and all the member's weights are nudged to reduce it. Because the
+        encoder is shared, every question improves the same brain.
+  \item 5 passes over the data, seed 13, on a free Kaggle T4 GPU. This is done twice,
+        once per member. The Ettin member is a deterministic rerun of an earlier run;
+        three reruns reproduced it exactly.
+  \item Temperatures and abstain thresholds are fitted on the 1{,}000 held-out
+        tickets (\texttt{fit\_ensemble.py}).
+  \item Export to ONNX. MiniLM is compressed to int8; Ettin stays fp32. The two are merged
+        into one graph.
 \end{enumerate}
 
 \section{fp32 against int8}
@@ -256,20 +283,22 @@ $0.15 < p < 0.79$. That band is lopsided because risky approvals are the costly 
  & fp32 (32-bit) & int8 (8-bit, quantized) \\
 \midrule
 bytes per weight & 4 & 1 \\
-file size & about 92\,MB & \textbf{24\,MB} \\
-used for & training & \textbf{serving} (what the judges run) \\
+used for & training, and the served Ettin member & the served MiniLM member \\
 \bottomrule
 \end{tabular}
 \end{center}
-The fp32 export is deleted after compression; only int8 ships. Which tests used which:
+int8 makes a model about 4 times smaller and usually faster, at a small cost in accuracy.
+For MiniLM the cost is tiny: int8 and fp32 give the same answer on 99.7 to 100\% of cases.
+For Ettin it is not: they agree on only 91\% of route, 92\% of approve and 81\% of
+grounded cases. An ensemble with Ettin in int8 scored 82.24 on dev; with Ettin at fp32 it
+scored 85.44. So Ettin ships at fp32, and the merged file is 92\,MB.
+
 \begin{itemize}
-  \item \textbf{int8} (the served model): the official dev score 83.75, latency, the
-        schema check and the demo.
+  \item \textbf{The served ensemble} (MiniLM int8 + Ettin fp32): the official dev score
+        85.44, latency, the schema check and the demo.
   \item \textbf{fp32} (predictions saved during GPU training): cross-validation, the
         second split, and the backbone and policy experiments.
 \end{itemize}
-On the same dev split the two agree within about 0.4 points (83.38 fp32 against 83.75
-int8). Quality and calibration are essentially identical; abstention moves about 0.03.
 
 \section{Was it tested on other splits?}
 \begin{center}
@@ -277,21 +306,25 @@ int8). Quality and calibration are essentially identical; abstention moves about
 \toprule
 Test & Result \\
 \midrule
-dev split (served model, never trained on dev) & \textbf{83.75} \\
-4-fold CV, shuffle A (evaluation-only models) & 82.56 $\pm$ 1.28 (folds 83.1 / 82.9 / 83.9 / 80.5) \\
+dev split (served ensemble, never trained on dev) & \textbf{85.44} \\
+dev split, MiniLM member alone & 83.75 \\
+4-fold CV of the ensemble (fresh fp32 models per fold) & 83.13 $\pm$ 0.53 \\
+4-fold CV, MiniLM alone (same folds) & 82.57 $\pm$ 1.29 \\
 4-fold CV, shuffle B (stopped early; accuracy only) & route 0.885 to 0.895, approve 0.894 to 0.909, grounded 0.973 to 0.977 \\
 \bottomrule
 \end{tabularx}
 \end{center}
-Dev sits inside the fold range, and a second shuffle gives the same accuracy. The
-expected hidden-test score is about 82 to 84. Most of the spread comes from approve, the
-noisiest label.
+The ensemble's dev gain (+1.69) is larger than its cross-validated gain (+0.56), so
+part of the dev 85.44 is a favourable Ettin run. The honest expected hidden-test score is
+roughly 83 to 85. Most of the spread comes from approve, the noisiest label.
 
 \section{Key decisions}
 \noindent\begin{tabularx}{\linewidth}{@{}lL@{}}
 \toprule
 Decision & Why \\
 \midrule
+ensemble of MiniLM and Ettin-17m & best and steadiest in cross-validation (83.13 $\pm$ 0.53); costs about 2 times the latency, still under 25\,ms p95 \\
+Ettin kept at fp32 & int8 changed up to 19\% of its answers \\
 small H384 encoder over the larger H768 & H768 grounds slightly better but is about 1.7 times slower, which risks the latency score \\
 never train on dev & keeps dev scores honest and respects the ``no memorising dev'' rule \\
 lopsided approve abstention band & a wrong approval costs 3 times a wrong hold \\
