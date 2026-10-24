@@ -33,3 +33,7 @@ docs/report/ex*.png
 kaggle/arch_bundle/
 kaggle/arch_logits/
 docs/report/xp*.png
+kaggle/bayes_bundle/
+kaggle/bayes_logits/
+kaggle/loss_bundle/
+kaggle/loss_logits/

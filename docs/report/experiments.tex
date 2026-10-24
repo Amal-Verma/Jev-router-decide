@@ -133,8 +133,44 @@ Do article or draft explain route? & same, on route & yes on vague tickets (68\%
 \medskip
 \noindent Estimated honest ceiling on unseen data: about 85 to 86.
 
-\section{Architecture comparison (pending)}
-Running on Kaggle: mixture of experts against a shared MLP trunk, plain linear heads, and
-distillation from the H768 teacher, 2 seeds each, trained on train only. Results will be added.
+\section{Architecture, loss and Bayesian variants}
+All trained on \texttt{train.jsonl} only. Dev rows: 2 seeds, paired against the served MoE
+with the same seeds. CV rows: paired on the same 4 fold models.
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+Variant (dev) & Seed 13 & Seed 14 & Mean & vs MoE \\
+\midrule
+\rowcolor{served} \textbf{MoE + temperature (served)} & 83.16 & 84.05 & \textbf{83.61} & \\
+entropy regularisation (Feng et al. 2022) & 83.41 & 83.88 & 83.64 & $+0.04$ \\
+distillation from H768 & 83.03 & 84.23 & 83.63 & $+0.02$ \\
+focal loss (Mukhoti et al. 2020) & 83.10 & 83.20 & 83.15 & $-0.46$ \\
+label smoothing 0.1 & 82.90 & 83.09 & 83.00 & $-0.61$ \\
+shared MLP trunk & 82.62 & 82.62 & 82.62 & $-0.99$ \\
+linear heads & 82.89 & 82.26 & 82.58 & $-1.03$ \\
+MoE + isotonic calibration & 82.71 & 83.40 & 83.06 & $-0.55$ \\
+\bottomrule
+\end{tabular}
+
+\medskip
+\begin{tabular}{lccc}
+\toprule
+Variant (4-fold CV, same models) & Total & vs plain & Folds better \\
+\midrule
+plain (temperature) & 82.54 & & \\
+MC dropout (20 samples) & 82.63 & $+0.09$ & 2/4 \\
+last-layer Laplace & 82.31 & $-0.23$ & 0/4 \\
+plain + isotonic & 82.69 & $+0.14$ & 3/4 \\
+MC dropout + isotonic & 82.72 & $+0.18$ & 3/4 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{Conclusion.} No method beats the served model by more than the noise.
+Bayesian methods model weight uncertainty, but the remaining errors come from random labels,
+which no training method can learn. Isotonic calibration is mixed ($+0.14$ to $+0.51$ on CV,
+$-0.55$ on dev): it improves calibration but flattens the ranking the abstention score uses.
+The served model stays H384 + MoE + temperature.
 
 \end{document}

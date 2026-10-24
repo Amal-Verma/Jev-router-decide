@@ -69,11 +69,19 @@ class DecideNet(nn.Module):
         self.approve_head = nn.Linear(d, 1)
         self.grounded_head = nn.Linear(d, 1)
 
-    def forward(self, input_ids, attention_mask, token_type_ids, tab, task):
+    def encode(self, input_ids, attention_mask, token_type_ids):
         out = self.encoder(input_ids=input_ids, attention_mask=attention_mask,
                            token_type_ids=token_type_ids).last_hidden_state
         m = attention_mask.unsqueeze(-1).to(out.dtype)
-        pooled = (out * m).sum(1) / m.sum(1).clamp(min=1.0)
+        return (out * m).sum(1) / m.sum(1).clamp(min=1.0)
+
+    def forward(self, input_ids, attention_mask, token_type_ids, tab, task):
+        pooled = self.encode(input_ids, attention_mask, token_type_ids)
+        return self.post(pooled, tab, task)[1:]
+
+    def post(self, pooled, tab, task):
+        """Everything after the encoder. Returns (z, route, approve, grounded),
+        where z is the representation the heads read."""
         te = self.task_emb(task)
         if self.arch == "linear":
             z = self.drop(torch.cat([pooled, self.tab(tab)], -1))
@@ -84,7 +92,7 @@ class DecideNet(nn.Module):
             g = torch.softmax(self.gate(torch.cat([pooled, te], -1)), -1)      # (b, E)
             mix = torch.stack([e(x) for e in self.experts], 1)                 # (b, E, d)
             z = (g.unsqueeze(-1) * mix).sum(1)
-        return self.route_head(z), self.approve_head(z).squeeze(-1), self.grounded_head(z).squeeze(-1)
+        return z, self.route_head(z), self.approve_head(z).squeeze(-1), self.grounded_head(z).squeeze(-1)
 
 
 def load(p):
@@ -117,6 +125,36 @@ def batches(tok, items, bs, shuffle, max_len):
 
 
 @torch.no_grad()
+def bayes_outputs(model, tok, rows, dev, max_len, n_mc=20, bs=128):
+    """Per task: head inputs z (for last-layer Laplace) and MC-dropout mean
+    probabilities (encoder run once, dropout on in the post-encoder part only)."""
+    model.eval()
+    post_dropouts = [m for n, m in model.named_modules()
+                     if isinstance(m, nn.Dropout) and not n.startswith("encoder.")]
+    out = {}
+    for task in TASKS:
+        ti = TASKS.index(task)
+        zs, mcs = [], []
+        for _, enc, tab, _ in batches(tok, [(task, r) for r in rows], bs, False, max_len):
+            args = [enc[k].to(dev) for k in ("input_ids", "attention_mask", "token_type_ids")]
+            pooled = model.encode(*args)
+            tab_, task_ = tab.to(dev), enc["task"].to(dev)
+            zs.append(model.post(pooled, tab_, task_)[0].float().cpu())
+            for m in post_dropouts:
+                m.train()
+            acc = 0
+            for _ in range(n_mc):
+                lg = model.post(pooled, tab_, task_)[1 + ti].float()
+                acc = acc + (torch.softmax(lg, -1) if task == "route" else torch.sigmoid(lg))
+            for m in post_dropouts:
+                m.eval()
+            mcs.append((acc / n_mc).cpu())
+        out[task + "_z"] = torch.cat(zs).numpy()
+        out[task + "_mc"] = torch.cat(mcs).numpy()
+    return out
+
+
+@torch.no_grad()
 def predict(model, tok, rows, dev, max_len, bs=128):
     """Raw logits per task, in row order."""
     model.eval()
@@ -130,6 +168,36 @@ def predict(model, tok, rows, dev, max_len, bs=128):
             logits.append(res[TASKS.index(task)].float().cpu())
         out[task] = torch.cat(logits).numpy()
     return out
+
+
+def task_loss(task, z, y, args):
+    """Cross-entropy, optionally with label smoothing, focal weighting
+    (Mukhoti et al. 2020) and an entropy-minimisation term (Feng et al. 2022)."""
+    eps, g, lam = args.label_smoothing, args.focal_gamma, args.ent_reg
+    if task == "route":
+        logp = F.log_softmax(z, -1)
+        tgt = F.one_hot(y.long(), z.shape[-1]).float()
+        if eps:
+            tgt = tgt * (1 - eps) + eps / z.shape[-1]
+        ce = -(tgt * logp).sum(-1)
+        if g:
+            pt = logp.gather(1, y.long()[:, None]).squeeze(1).exp()
+            ce = (1 - pt) ** g * ce
+        loss = ce.mean()
+        if lam:
+            loss = loss + lam * -(logp.exp() * logp).sum(-1).mean()
+    else:
+        yt = y.float() * (1 - eps) + eps / 2 if eps else y.float()
+        ce = F.binary_cross_entropy_with_logits(z, yt, reduction="none")
+        if g:
+            p = torch.sigmoid(z)
+            pt = torch.where(y > 0.5, p, 1 - p)
+            ce = (1 - pt) ** g * ce
+        loss = ce.mean()
+        if lam:
+            p = torch.sigmoid(z).clamp(1e-6, 1 - 1e-6)
+            loss = loss + lam * -(p * p.log() + (1 - p) * (1 - p).log()).mean()
+    return loss
 
 
 def fit_temperature(logits, y, multiclass):
@@ -166,6 +234,11 @@ def main():
     ap.add_argument("--teacher", default=None, help="dir with a teacher's all_logits.npz / all_ids.json")
     ap.add_argument("--distill_alpha", type=float, default=0.5)
     ap.add_argument("--distill_T", type=float, default=2.0)
+    ap.add_argument("--label_smoothing", type=float, default=0.0)
+    ap.add_argument("--focal_gamma", type=float, default=0.0)
+    ap.add_argument("--ent_reg", type=float, default=0.0, help="entropy-minimisation weight")
+    ap.add_argument("--bayes", action="store_true",
+                    help="save Laplace features (z) for train/cal/dev and MC-dropout probs for cal/dev")
     ap.add_argument("--every_epoch", action="store_true",
                     help="also save holdout and dev logits after each epoch (e<N>_cal.npz, e<N>_dev.npz)")
     args = ap.parse_args()
@@ -211,7 +284,7 @@ def main():
                             enc["token_type_ids"].to(dev), tab.to(dev), enc["task"].to(dev))
                 z = res[TASKS.index(task)].float()
                 y = y.to(dev)
-                loss = F.cross_entropy(z, y.long()) if task == "route" else F.binary_cross_entropy_with_logits(z, y.float())
+                loss = task_loss(task, z, y, args)
                 if teacher is not None:
                     T, a = args.distill_T, args.distill_alpha
                     t = torch.tensor(teacher[0][task][[teacher[1][i] for i in enc["rid"]]], device=dev).float()
@@ -256,6 +329,14 @@ def main():
     np.savez(os.path.join(args.out, "dev_logits.npz"), **{k: v for k, v in ld.items()})
     with open(os.path.join(args.out, "cal_ids.json"), "w") as fh:
         json.dump([r["request_id"] for r in cal], fh)
+    if args.bayes:
+        for name, rs in (("train", train), ("cal", cal), ("dev", devset)):
+            np.savez(os.path.join(args.out, f"bayes_{name}.npz"), **bayes_outputs(model, tok, rs, dev, args.max_len))
+        np.savez(os.path.join(args.out, "heads.npz"),
+                 **{n.replace(".", "_"): p.detach().float().cpu().numpy()
+                    for n, p in model.named_parameters() if "_head" in n})
+        with open(os.path.join(args.out, "train_ids.json"), "w") as fh:
+            json.dump([r["request_id"] for r in train], fh)
     if args.save_all_logits:
         la = predict(model, tok, rows, dev, args.max_len)
         np.savez(os.path.join(args.out, "all_logits.npz"), **la)

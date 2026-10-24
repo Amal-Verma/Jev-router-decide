@@ -83,8 +83,52 @@ already abstained on:
 
 Estimated honest ceiling on unseen data: about 85 to 86.
 
-## 5. Architecture comparison (pending)
+## 5. Architecture, loss and Bayesian variants
 
-Running on Kaggle: mixture of experts against a shared MLP trunk, plain linear
-heads, and distillation from the H768 teacher, 2 seeds each, trained on train only.
-Results will be added here.
+All trained on `train.jsonl` only (H384, 5 epochs). Dev rows use 2 seeds (13, 14),
+paired against the served MoE with the same seeds. CV rows are paired on the same
+4 fold models.
+
+### Architecture and loss (dev, offline, latency at full marks)
+
+| Variant | Seed 13 | Seed 14 | Mean | vs MoE |
+|---|---|---|---|---|
+| **MoE + temperature (served)** | 83.16 | 84.05 | **83.61** | |
+| entropy regularisation 0.05 (Feng et al. 2022) | 83.41 | 83.88 | 83.64 | +0.04 |
+| distillation from H768 teacher | 83.03 | 84.23 | 83.63 | +0.02 |
+| focal loss, gamma 2 (Mukhoti et al. 2020) | 83.10 | 83.20 | 83.15 | -0.46 |
+| label smoothing 0.1 | 82.90 | 83.09 | 83.00 | -0.61 |
+| shared MLP trunk (no experts, no gate) | 82.62 | 82.62 | 82.62 | -0.99 |
+| linear heads (no middle layer) | 82.89 | 82.26 | 82.58 | -1.03 |
+| H768 teacher (1 seed) | 83.12 | | 83.12 | |
+| MoE + isotonic calibration | 82.71 | 83.40 | 83.06 | -0.55 |
+
+### Bayesian and post-hoc calibration (4-fold CV, same fold models)
+
+| Variant | Total | vs plain | Folds better |
+|---|---|---|---|
+| plain (temperature) | 82.54 | | |
+| MC dropout, 20 samples on experts + head | 82.63 | +0.09 | 2 of 4 |
+| last-layer Laplace (GGN, prior tuned on holdout) | 82.31 | -0.23 | 0 of 4 |
+| plain + isotonic binaries | 82.69 | +0.14 | 3 of 4 |
+| MC dropout + isotonic | 82.72 | +0.18 | 3 of 4 |
+| Laplace + isotonic | 82.68 | +0.14 | 2 of 4 |
+
+On the first CV models, post-hoc variants scored: vector scaling + Platt +0.29,
+isotonic binaries +0.41, margin-shaped route + isotonic +0.51. Isotonic is mixed
+across tests (+0.14 to +0.51 on CV, -0.55 on dev), because it improves calibration
+but flattens the confidence ranking that the abstention score uses. It is not shipped.
+The runtime can load such maps (`fit_posthoc.py`, `posthoc.json`), but the served
+artifacts contain none.
+
+### Conclusion
+
+No method beats the served model by more than the noise. Bayesian methods model
+weight uncertainty, but the remaining errors come from random labels (section 4),
+which no training method can learn. The served model stays H384 + MoE + temperature.
+
+Literature consulted: Geifman and El-Yaniv 2017 and the selective classification
+benchmark (arXiv 2401.12708); Mukhoti et al. 2020 (arXiv 2002.09437); Feng et al.
+2022; Zhu et al. 2022/2023 on BERT and label noise (arXiv 2305.16337); MC dropout
+and ensembles on pretrained transformers (arXiv 2601.22068); multi-task loss
+weighting survey (arXiv 2404.18961).

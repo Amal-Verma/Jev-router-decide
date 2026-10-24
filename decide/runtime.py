@@ -28,6 +28,14 @@ class EncoderBackend:
         self.tok.no_padding()
         with open(os.path.join(artifacts_dir, "calibration.json"), encoding="utf-8") as fh:
             self.temp = json.load(fh)
+        # Optional post-hoc maps (fit_posthoc.py): isotonic curves for the binary
+        # heads, and an isotonic map from the route top-2 logit margin to the
+        # top-queue probability. Absent maps fall back to temperature only.
+        self.maps = {}
+        mp = os.path.join(artifacts_dir, "posthoc.json")
+        if os.path.exists(mp):
+            with open(mp, encoding="utf-8") as fh:
+                self.maps = {k: (np.asarray(v["x"]), np.asarray(v["y"])) for k, v in json.load(fh).items()}
         self.outputs = {"route": ["route"], "approve": ["approve"], "grounded": ["grounded"]}
         # Feed only the inputs this graph declares (an architecture that ignores
         # the task id exports without a "task" input).
@@ -47,13 +55,27 @@ class EncoderBackend:
         return self.sess.run(self.outputs[task], feed)[0][0]
 
     def route_probs(self, s):
-        z = self._logits("route", s) / self.temp["route"]
+        raw = self._logits("route", s)
+        z = raw / self.temp["route"]
         z = np.exp(z - z.max())
-        return z / z.sum()
+        p = z / z.sum()
+        if "route_margin" in self.maps:
+            top2 = np.sort(raw)[-2:]
+            i = int(p.argmax())
+            top = float(np.interp(top2[1] - top2[0], *self.maps["route_margin"]))
+            rest = p.copy()
+            rest[i] = 0.0
+            rest = rest / rest.sum() * (1.0 - top)
+            rest[i] = top
+            p = rest
+        return p
 
     def _binary(self, task, s):
         z = float(self._logits(task, s)) / self.temp[task]
-        return 1.0 / (1.0 + math.exp(-z))
+        p = 1.0 / (1.0 + math.exp(-z))
+        if task in self.maps:
+            p = float(np.interp(p, *self.maps[task]))
+        return p
 
     def approve_prob(self, s):
         return self._binary("approve", s)
