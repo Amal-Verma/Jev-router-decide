@@ -1,5 +1,5 @@
 {
-  "url": "http://localhost:8012/v1/decide",
+  "url": "http://localhost:8731/v1/decide",
   "eval": "data/dev.jsonl",
   "n_records": 1500,
   "n_calls": 4500,
@@ -16,19 +16,19 @@
   },
   "latency_ms": {
     "p50": {
-      "route": 7.626440999956685,
-      "approve": 8.646436001072288,
-      "grounded": 10.668769498806796
+      "route": 6.531768500281032,
+      "approve": 7.261799000843894,
+      "grounded": 8.624794998468133
     },
     "p95": {
-      "route": 11.252729300395002,
-      "approve": 12.297201500405208,
-      "grounded": 13.783851996959129
+      "route": 9.595759852891206,
+      "approve": 10.549377548886692,
+      "grounded": 11.84751164764748
     },
-    "mean_p95": 12.44459426591978,
-    "overall_p50": 9.010070498334244,
-    "overall_p95": 12.864599450767855,
-    "server_self_reported_p95": 11.1911,
+    "mean_p95": 10.66421634980846,
+    "overall_p50": 7.613020497956313,
+    "overall_p95": 11.036721199707245,
+    "server_self_reported_p95": 9.496400000000001,
     "reconnects": 0
   },
   "quality": {

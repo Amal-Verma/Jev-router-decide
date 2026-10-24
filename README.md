@@ -108,6 +108,7 @@ is absent.
 |---|---|---|
 | `cross-encoder/ms-marco-MiniLM-L6-v2` (Hugging Face) | encoder initialisation (served model) | Apache-2.0 |
 | `cross-encoder/nli-MiniLM2-L6-H768` (Hugging Face) | compared backbone, not served | Apache-2.0 |
+| `jhu-clsp/ettin-encoder-17m` (Hugging Face) | compared backbone and ensemble member, not served | MIT |
 
 Libraries: PyTorch (BSD-3), Transformers (Apache-2.0), ONNX Runtime (MIT),
 tokenizers (Apache-2.0), FastAPI (MIT), Uvicorn (BSD-3), scikit-learn (BSD-3),
@@ -119,11 +120,12 @@ LightGBM (MIT).
 |---|---|
 | classical baseline (`train_baseline.py`) | 78.45 |
 | shared encoder, H768 NLI backbone | 73.65 (more accurate grounding, too slow) |
+| ensemble: H384 MiniLM + Ettin-17m, one merged graph | 82.78 (cross-validated +0.56, but lower on dev and 1.6x slower) |
 | **shared encoder + MoE, H384 (served, trained on train only)** | **83.75** |
 
 As a consistency check, evaluation-only models trained on 4 folds of train + dev scored **82.56 ± 1.28** on unseen rows (folds 80.5 to 83.9), so dev is not a lucky split. The served model is trained on `train.jsonl` only and never sees dev.
 
-Mean p95 is about 11 ms per call on a quiet machine. Full numbers are in `results.json`; accuracy,
+Mean p95 is about 11 ms per call on a quiet machine (10.7 ms in `results.json`). Full numbers are in `results.json`; accuracy,
 calibration and failure modes are in `model_card.md`.
 
 ## One trade-off we made
@@ -144,6 +146,7 @@ one decision does not pay for that.
 - `docs/TRAINING.md`: how to retrain (Kaggle GPU) and rebuild the policy
 - `docs/DEMO.md`: three-minute demo script, including a refusal case
 - `docs/PLAN.md`: plan, status and untried ideas
+- `docs/SUBMISSION.md`: submission checklist; `scripts/verify_submission.sh` re-checks it from a fresh venv
 
 ## Layout
 

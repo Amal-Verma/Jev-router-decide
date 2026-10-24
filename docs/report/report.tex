@@ -54,7 +54,7 @@ mixture of experts, and one linear head per decision. It is served as a single
 abstention policy set on held-out data. Trained on the training split only, it
 scores \textbf{83.75/100} on the public dev split with the official self-check
 (classical baseline 78.45), and 82.6\,$\pm$\,1.3 in a 4-fold cross-validation
-check. Mean per-decision p95 latency is about 12\,ms, measured one request at a
+check. Mean per-decision p95 latency is about 11\,ms, measured one request at a
 time.
 \end{abstract}
 
@@ -250,7 +250,7 @@ error, top 80\% by confidence & 0.056 & 0.057 & 0.007 \\
 ECE & 0.019 & 0.013 & 0.016 \\
 Brier skill & 0.79 & 0.68 & 0.91 \\
 declared coverage & 0.83 & 0.86 & 0.84 \\
-p50 / p95 latency (ms) & 7.6 / 11.3 & 8.6 / 12.3 & 10.7 / 13.8 \\
+p50 / p95 latency (ms) & 6.5 / 9.6 & 7.3 / 10.5 & 8.6 / 11.8 \\
 \bottomrule
 \end{tabular}
 \caption{Served model (H384 + mixture of experts), public dev split, quiet machine.}

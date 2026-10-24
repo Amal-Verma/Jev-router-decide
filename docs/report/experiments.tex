@@ -41,17 +41,21 @@ End-to-end runs through the real web service, int8 model on CPU.
 \midrule
 1 & Classical baseline: TF-IDF + LR, LightGBM + tabular & train & 78.45 & .783 & .760 & 1.00 & .542 & 22.5 & gate-1 baseline \\
 2 & H384 + MoE, symmetric abstention & train & 83.76 & .850 & .856 & 1.00 & .558 & $\sim$24 & superseded \\
-\rowcolor{served} 3 & \textbf{H384 + MoE, lopsided approve band} & \textbf{train} & \textbf{83.75} & .849 & .856 & 1.00 & .558 & \textbf{10.6} & \textbf{served} \\
+\rowcolor{served} 3 & \textbf{H384 + MoE, lopsided approve band} & \textbf{train} & \textbf{83.75} & .849 & .856 & 1.00 & .558 & \textbf{10.7} & \textbf{served} \\
 4 & H768 NLI + MoE (quiet machine) & train & 84.52 & .846 & .849 & 1.00 & .632 & 21.3 & 2$\times$ slower; grounded p95 24.7 \\
 5 & H768 NLI + MoE (busy machine) & train & 73.65 & .828 & .849 & 0.49 & .632 & 63 & latency risk \\
 \rowcolor{bad} 6 & H384 + MoE retrained on train + dev & train+dev & 87.55 & .876 & .883 & 1.00 & .695 & 10.8 & rejected: inflated \\
+7 & Ensemble: H384 + MoE and Ettin-17m + MoE, one merged ONNX graph & train & 82.78 & .846 & .821 & 1.00 & .562 & 16.8 & not served: $-0.97$ vs \#3 \\
+8 & Same as \#7 (busy machine) & train & 82.20 & .846 & .821 & 0.97 & .562 & 27.2 & latency risk \\
 \bottomrule
 \end{tabularx}}
 
 \medskip
 \noindent p95 is the mean of the per-decision p95 latency in ms. The served model (\#3)
 measured 78.26 on a busy machine (load 11): identical quality, calibration and abstention,
-only latency dropped.
+only latency dropped. Rows \#3 and \#7 were run back to back on the same machine; both
+returned 4{,}500 of 4{,}500 valid responses. The ensemble lost mainly on calibration
+(mean ECE 0.028 against 0.016).
 
 \begin{center}
 \begin{tikzpicture}
@@ -95,6 +99,12 @@ Epochs & Total & Abstention policy (5 epochs) & Total & Lowest cov. \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+\paragraph{Ensemble of two encoders.} MiniLM + Ettin-17m merged into one ONNX graph scored
+\textbf{83.13\,$\pm$\,0.53} against 82.57\,$\pm$\,1.29 for the served setup on the same folds
+(+0.56). On dev it scored 82.78 against 83.75 (rows \#3 and \#7) and was about 1.6$\times$
+slower. The rule fixed in advance was to serve it only if its dev total was within 0.2 of the
+served model, so the single MiniLM model stays served.
 
 \paragraph{Article-aware routing.} On vague tickets the KB article predicts the route label
 68\% of the time, against 30\% for the ticket-only model. Using it still lost points,

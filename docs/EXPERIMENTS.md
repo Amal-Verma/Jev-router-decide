@@ -13,13 +13,21 @@ These are end-to-end runs through the real web service.
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | Classical baseline: TF-IDF + logistic regression (route, grounded), LightGBM + tabular features (approve) | train | 78.45 | 0.783 | 0.760 | 1.000 | 0.542 | 22.5 ms | gate-1 baseline |
 | 2 | H384 MiniLM + mixture of experts, symmetric abstention | train | 83.76 | 0.850 | 0.856 | 1.000 | 0.558 | ~24 ms (busy machine) | superseded by #3 |
-| 3 | **H384 MiniLM + mixture of experts, lopsided approve band (served)** | **train** | **83.75** | 0.849 | 0.856 | 1.000 | 0.558 | **10.6 ms** (quiet) | **served** |
+| 3 | **H384 MiniLM + mixture of experts, lopsided approve band (served)** | **train** | **83.75** | 0.849 | 0.856 | 1.000 | 0.558 | **10.7 ms** (quiet) | **served** |
 | 4 | H768 NLI MiniLM + mixture of experts | train | 84.52 | 0.846 | 0.849 | 1.000 | 0.632 | 21.3 ms (quiet) | +0.77, but 2x slower; grounded p95 24.7 ms sits at the 25 ms line |
 | 5 | Same as #4, machine busy | train | 73.65 | 0.828 | 0.849 | 0.492 | 0.632 | 63 ms | shows the latency risk |
 | 6 | H384 MiniLM + mixture of experts, retrained on train + dev | train + dev | 87.55 | 0.876 | 0.883 | 1.000 | 0.695 | 10.8 ms | **rejected**: inflated, dev was in training |
+| 7 | Ensemble: H384 MiniLM + MoE and Ettin-17m + MoE, merged into one ONNX graph | train | 82.78 | 0.846 | 0.821 | 1.000 | 0.562 | 16.8 ms | not served: -0.97 against #3 in the same back-to-back run, mostly calibration |
+| 8 | Same as #7, machine busy (load 5.7 to 7.5) | train | 82.20 | 0.846 | 0.821 | 0.971 | 0.562 | 27.2 ms | latency drops below full marks |
 
 The same served model (#3) measured 78.26 while the machine was busy (load 11):
 quality, calibration and abstention were identical, and only latency dropped (p95 46 ms).
+
+Rows #3 and #7 were measured back to back on the same machine (load 1.6 to 4 during the runs):
+per-decision p95 was route 9.6 / approve 10.5 / grounded 11.8 ms for #3 and 15.0 / 16.6 / 18.7 ms
+for #7. Both returned 4,500 of 4,500 valid responses. The ensemble had slightly better route
+macro-F1 (0.945 against 0.941) but worse approve cost (0.196 against 0.190) and mean ECE
+(0.028 against 0.016).
 
 ## 2. Offline score on dev (fp32 predictions, latency held at full marks)
 
@@ -52,6 +60,18 @@ Evaluation-only models, never served. fp32, H384 + mixture of experts.
 | approve threshold tuned on holdout | 82.44 ± 1.30 | no gain over 0.75 |
 | **lopsided approve band 0.15 to 0.79 (served)** | **82.56 ± 1.28** | 0.816 |
 | served + grounded coverage 0.92 | 82.49 ± 1.27 | 0.816 |
+
+### Ensemble of two encoders (MiniLM + Ettin-17m, one merged ONNX graph)
+
+| Model | Total |
+|---|---|
+| served setup (H384 MiniLM + MoE) | 82.57 ± 1.29 |
+| ensemble, MiniLM + Ettin-17m | **83.13 ± 0.53** |
+
+Cross-validation favoured the ensemble by +0.56, but on the dev split the served model
+scored 83.75 against 82.78 (section 1, rows #3 and #7) and runs about 1.6x faster. The
+decision rule fixed in advance was to serve the ensemble only if its dev total was within
+0.2 of the served model; it was not, so the single MiniLM model stays served.
 
 ### Article-aware routing (test of a found signal)
 

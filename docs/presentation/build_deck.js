@@ -111,7 +111,7 @@ s.addNotes("Each question is framed for what it compares: route reads the ticket
 pres.addSection({ title: "Results" });
 s = pres.addSlide({ masterName: "Content", sectionTitle: "Results" });
 s.addText("Results with the judges' own scoring code", { placeholder: "title" });
-const stats4 = [["83.75", "dev score / 100"], ["82.6 ± 1.3", "4-fold cross-validation"], ["10.6 ms", "mean p95 latency"], ["0.016", "calibration error (ECE)"]];
+const stats4 = [["83.75", "dev score / 100"], ["82.6 ± 1.3", "4-fold cross-validation"], ["10.7 ms", "mean p95 latency"], ["0.016", "calibration error (ECE)"]];
 stats4.forEach(([big, small], i) => {
   const y = 1.2 + i * 0.95;
   s.addText(big, { isTextBox: true, objectName: `stat4-${i}`, x: 0.5, y, w: 2.9, h: 0.6, fontSize: 30, bold: true, color: C.accent1, margin: 0 });
@@ -150,7 +150,7 @@ s.addNotes("Demo: send the $112 Pro ticket. The model says 0.31 and abstains ins
 pres.addSection({ title: "Trade-offs" });
 s = pres.addSlide({ masterName: "Content", sectionTitle: "Trade-offs" });
 s.addText("What we tried, and the trade-off we made", { placeholder: "title" });
-s.addChart(pres.charts.BAR, [{ name: "Dev score", labels: ["Pure NN from scratch", "Classical baseline", "Ettin-32m (2025)", "MiniLM + MoE (served)", "Bigger H768 + MoE"], values: [77.7, 78.45, 83.14, 83.75, 84.52] }], {
+s.addChart(pres.charts.BAR, [{ name: "Dev score", labels: ["Pure NN from scratch", "Classical baseline", "MiniLM + Ettin-17m ensemble", "Ettin-32m (2025)", "MiniLM + MoE (served)", "Bigger H768 + MoE"], values: [77.7, 78.45, 82.78, 83.14, 83.75, 84.52] }], {
   objectName: "chart-tried", x: 0.4, y: 1.1, w: 5.4, h: 3.9, barDir: "bar",
   chartColors: [HEX.accent4], showValue: true, dataLabelPosition: "outEnd", dataLabelFormatCode: "0.0",
   dataLabelColor: HEX.dk1, dataLabelFontSize: 12, dataLabelFontFace: "+mn-lt",
@@ -166,7 +166,7 @@ s.addText([
   { text: " ", options: { fontSize: 6, breakLine: true } },
   { text: "We ship the small model: latency is 20% of the score.", options: { bold: true, color: C.text1 } },
 ], { isTextBox: true, objectName: "tradeoff-text", x: 6.3, y: 1.35, w: 3.0, h: 3.3, fontSize: 14, valign: "top", margin: 0 });
-s.addNotes("The one real trade-off: the bigger H768 model looked better in one run, but retraining showed most of that was luck, and it is twice as slow. Latency is 20% of the score, so we ship the small model.");
+s.addNotes("The one real trade-off: the bigger H768 model looked better in one run, but retraining showed most of that was luck, and it is twice as slow. Latency is 20% of the score, so we ship the small model. We also merged MiniLM and Ettin-17m into one graph: cross-validation liked it (+0.56), but on dev it scored 82.8 against 83.75 and ran about 1.6x slower, so the single model stays.");
 
 // 7. Everything else tested ------------------------------------------------------
 s = pres.addSlide({ masterName: "Content", sectionTitle: "Trade-offs" });

@@ -54,8 +54,8 @@ training. On the same dev split the two agree within about 0.4 points (83.38 fp3
 against 83.75 int8).
 
 **Latency** (self-check, one request at a time, quiet 8-thread laptop i5, ONNX
-Runtime with 4 threads): p50 / p95 = route 7.6 / 11.3 ms, approve 8.7 / 12.3 ms,
-grounded 10.7 / 13.8 ms.
+Runtime with 4 threads): p50 / p95 = route 6.5 / 9.6 ms, approve 7.3 / 10.5 ms,
+grounded 8.6 / 11.8 ms (mean p95 10.7 ms).
 
 **When it abstains.** Abstained requests still return calibrated probabilities.
 Thresholds live in `artifacts/policy.json`, set on the holdout to answer about 85% of
