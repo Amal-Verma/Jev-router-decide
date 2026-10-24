@@ -19,6 +19,30 @@ and `artifacts/` holds only the served ensemble, about 93 MB), so there is nothi
 python selfcheck.py --url http://localhost:8000/v1/decide
 ```
 
+## Running each model (optional CLI)
+
+The judges' command above serves the **ensemble** (the submission). The two
+single models are also committed under `artifacts/`, and either can be run:
+
+| Model | Weights | Dev score (full selfcheck) |
+|---|---|---|
+| **ensemble** (default, submitted) | `artifacts/` | 85.44 |
+| MiniLM + MoE | `artifacts/minilm/` | 83.75 |
+| Ettin-17m + MoE | `artifacts/ettin/` | 84.68 |
+
+```bash
+python serve.py --model ensemble     # same as: uvicorn app:app
+python serve.py --model minilm --port 8001
+python serve.py --model ettin  --port 8002
+# or, without serve.py:  ARTIFACTS_DIR=artifacts/minilm uvicorn app:app --port 8001
+
+# answer one ticket in the terminal (no server); prints one JSON line per decision
+python predict.py --model ettin --decision approve --ticket ticket.json
+echo '{"subject":"Refund please","body":"Please refund $12.","customer_tier":"pro","amount":12}' | python predict.py --model minilm
+```
+
+All three use the same `POST /v1/decide` schema.
+
 ## Architecture: where the sharing happens
 
 ```mermaid

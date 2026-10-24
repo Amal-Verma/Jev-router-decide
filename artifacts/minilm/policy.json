@@ -1,0 +1,11 @@
+{
+  "route_min_conf": 0.9032360911369324,
+  "approve_min_conf": 0.8060131669044495,
+  "grounded_min_conf": 0.9747791290283203,
+  "approve_threshold": 0.75,
+  "approve_abstain_band": [
+    0.15,
+    0.79
+  ],
+  "coverage_target": 0.85
+}
