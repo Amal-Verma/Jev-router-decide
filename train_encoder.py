@@ -44,19 +44,30 @@ class DecideNet(nn.Module):
     Every forward returns all three logits; the runtime reads the one it needs.
     """
 
-    def __init__(self, base, n_experts=4, d_expert=256):
+    def __init__(self, base, n_experts=4, d_expert=256, arch="moe"):
         super().__init__()
+        self.arch = arch
         self.encoder = AutoModel.from_pretrained(base)
         h = self.encoder.config.hidden_size
         self.task_emb = nn.Embedding(len(TASKS), 32)
         self.tab = nn.Sequential(nn.Linear(N_TAB, 64), nn.GELU())
-        self.experts = nn.ModuleList([
-            nn.Sequential(nn.Dropout(0.1), nn.Linear(h + 64 + 32, d_expert), nn.GELU())
-            for _ in range(n_experts)])
-        self.gate = nn.Linear(h + 32, n_experts)
-        self.route_head = nn.Linear(d_expert, len(QUEUES))
-        self.approve_head = nn.Linear(d_expert, 1)
-        self.grounded_head = nn.Linear(d_expert, 1)
+        if arch == "moe":
+            self.experts = nn.ModuleList([
+                nn.Sequential(nn.Dropout(0.1), nn.Linear(h + 64 + 32, d_expert), nn.GELU())
+                for _ in range(n_experts)])
+            self.gate = nn.Linear(h + 32, n_experts)
+            d = d_expert
+        elif arch == "trunk":      # one shared MLP layer, no experts or gate
+            self.trunk = nn.Sequential(nn.Dropout(0.1), nn.Linear(h + 64 + 32, d_expert), nn.GELU())
+            d = d_expert
+        elif arch == "linear":     # heads read the encoder summary directly
+            self.drop = nn.Dropout(0.1)
+            d = h + 64
+        else:
+            raise ValueError(arch)
+        self.route_head = nn.Linear(d, len(QUEUES))
+        self.approve_head = nn.Linear(d, 1)
+        self.grounded_head = nn.Linear(d, 1)
 
     def forward(self, input_ids, attention_mask, token_type_ids, tab, task):
         out = self.encoder(input_ids=input_ids, attention_mask=attention_mask,
@@ -64,10 +75,15 @@ class DecideNet(nn.Module):
         m = attention_mask.unsqueeze(-1).to(out.dtype)
         pooled = (out * m).sum(1) / m.sum(1).clamp(min=1.0)
         te = self.task_emb(task)
-        x = torch.cat([pooled, self.tab(tab), te], -1)
-        g = torch.softmax(self.gate(torch.cat([pooled, te], -1)), -1)          # (b, E)
-        mix = torch.stack([e(x) for e in self.experts], 1)                     # (b, E, d)
-        z = (g.unsqueeze(-1) * mix).sum(1)
+        if self.arch == "linear":
+            z = self.drop(torch.cat([pooled, self.tab(tab)], -1))
+        elif self.arch == "trunk":
+            z = self.trunk(torch.cat([pooled, self.tab(tab), te], -1))
+        else:
+            x = torch.cat([pooled, self.tab(tab), te], -1)
+            g = torch.softmax(self.gate(torch.cat([pooled, te], -1)), -1)      # (b, E)
+            mix = torch.stack([e(x) for e in self.experts], 1)                 # (b, E, d)
+            z = (g.unsqueeze(-1) * mix).sum(1)
         return self.route_head(z), self.approve_head(z).squeeze(-1), self.grounded_head(z).squeeze(-1)
 
 
@@ -96,6 +112,7 @@ def batches(tok, items, bs, shuffle, max_len):
             enc["token_type_ids"] = torch.zeros_like(enc["input_ids"])
         y = torch.tensor([label_of(task, items[i][1]) for i in ids])
         enc["task"] = torch.full((len(ids),), TASKS.index(task), dtype=torch.long)
+        enc["rid"] = [items[i][1]["request_id"] for i in ids]
         yield task, enc, torch.tensor(np.stack(tab)), y
 
 
@@ -143,6 +160,12 @@ def main():
     ap.add_argument("--train_file", default=None, help="overrides <data>/train.jsonl")
     ap.add_argument("--dev_file", default=None, help="overrides <data>/dev.jsonl")
     ap.add_argument("--no_export", action="store_true", help="skip ONNX export (CV runs)")
+    ap.add_argument("--arch", default="moe", choices=["moe", "trunk", "linear"])
+    ap.add_argument("--save_all_logits", action="store_true",
+                    help="teacher mode: save logits for every training-file row (all_logits.npz, all_ids.json)")
+    ap.add_argument("--teacher", default=None, help="dir with a teacher's all_logits.npz / all_ids.json")
+    ap.add_argument("--distill_alpha", type=float, default=0.5)
+    ap.add_argument("--distill_T", type=float, default=2.0)
     ap.add_argument("--every_epoch", action="store_true",
                     help="also save holdout and dev logits after each epoch (e<N>_cal.npz, e<N>_dev.npz)")
     args = ap.parse_args()
@@ -160,7 +183,12 @@ def main():
     print(f"train {len(train)}  calibration {len(cal)}  dev {len(devset)}  device {dev}", flush=True)
 
     tok = AutoTokenizer.from_pretrained(args.base)
-    model = DecideNet(args.base).to(dev)
+    model = DecideNet(args.base, arch=args.arch).to(dev)
+    teacher = None
+    if args.teacher:
+        tl = np.load(os.path.join(args.teacher, "all_logits.npz"))
+        tid = {r: i for i, r in enumerate(json.load(open(os.path.join(args.teacher, "all_ids.json"))))}
+        teacher = (tl, tid)
     items = [(t, r) for r in train for t in TASKS]
     # batches are grouped per task, so each task rounds up on its own
     steps = args.epochs * len(TASKS) * math.ceil(len(train) / args.bs)
@@ -184,6 +212,14 @@ def main():
                 z = res[TASKS.index(task)].float()
                 y = y.to(dev)
                 loss = F.cross_entropy(z, y.long()) if task == "route" else F.binary_cross_entropy_with_logits(z, y.float())
+                if teacher is not None:
+                    T, a = args.distill_T, args.distill_alpha
+                    t = torch.tensor(teacher[0][task][[teacher[1][i] for i in enc["rid"]]], device=dev).float()
+                    if task == "route":
+                        soft = F.kl_div(F.log_softmax(z / T, -1), F.softmax(t / T, -1), reduction="batchmean")
+                    else:
+                        soft = F.binary_cross_entropy_with_logits(z / T, torch.sigmoid(t / T))
+                    loss = (1 - a) * loss + a * soft * T * T
             opt.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
@@ -220,6 +256,11 @@ def main():
     np.savez(os.path.join(args.out, "dev_logits.npz"), **{k: v for k, v in ld.items()})
     with open(os.path.join(args.out, "cal_ids.json"), "w") as fh:
         json.dump([r["request_id"] for r in cal], fh)
+    if args.save_all_logits:
+        la = predict(model, tok, rows, dev, args.max_len)
+        np.savez(os.path.join(args.out, "all_logits.npz"), **la)
+        with open(os.path.join(args.out, "all_ids.json"), "w") as fh:
+            json.dump([r["request_id"] for r in rows], fh)
 
     # ---- export ----------------------------------------------------------------
     if args.no_export:

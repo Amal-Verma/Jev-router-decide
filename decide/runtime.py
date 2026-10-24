@@ -29,6 +29,9 @@ class EncoderBackend:
         with open(os.path.join(artifacts_dir, "calibration.json"), encoding="utf-8") as fh:
             self.temp = json.load(fh)
         self.outputs = {"route": ["route"], "approve": ["approve"], "grounded": ["grounded"]}
+        # Feed only the inputs this graph declares (an architecture that ignores
+        # the task id exports without a "task" input).
+        self.inputs = {i.name for i in self.sess.get_inputs()}
 
     def _logits(self, task, s):
         a, b, tab = encode_inputs(task, s)
@@ -40,6 +43,7 @@ class EncoderBackend:
             "tab": tab[None],
             "task": np.asarray([TASK_IDS[task]], dtype=np.int64),
         }
+        feed = {k: v for k, v in feed.items() if k in self.inputs}
         return self.sess.run(self.outputs[task], feed)[0][0]
 
     def route_probs(self, s):
