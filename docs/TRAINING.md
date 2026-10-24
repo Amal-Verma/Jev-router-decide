@@ -33,20 +33,22 @@ temperature per head), and `cal_logits.npz` / `dev_logits.npz`.
 
 The served model has two members, each trained as above on `train.jsonl` with
 seed 13: `--base cross-encoder/ms-marco-MiniLM-L6-v2` and
-`--base jhu-clsp/ettin-encoder-17m`. The MiniLM member is served int8. The
-Ettin member must be kept at fp32 (the fp32 export before `quantize_dynamic`),
-because int8 changes up to 19% of its answers. The two graphs are merged into
-one `decide.onnx` with input and output names prefixed `m_` and `e_`, the
-tokenizers go to `tok_m/` and `tok_e/`, and then:
+`--base jhu-clsp/ettin-encoder-17m --keep_fp32`. The MiniLM member is served
+int8. The Ettin member must be served at fp32 (`--keep_fp32` keeps
+`decide_fp32.onnx`; use it as that member's `decide.onnx`), because int8 changes
+up to 19% of its answers. Then merge and calibrate:
 
 ```bash
-python fit_ensemble.py <ensemble dir> data/train.jsonl   # ensemble.json, calibration.json, policy.json
+python merge_ensemble.py <minilm dir> <ettin dir> <ensemble dir>   # one decide.onnx, tok_m/, tok_e/
+python fit_ensemble.py <ensemble dir> data/train.jsonl            # ensemble.json, calibration.json, policy.json
 ```
 
-This fits the member and final temperatures and the abstention thresholds on
-the 1,000-row train holdout (`cal_ids.json`), never dev. Note: the committed
-`train_encoder.py` deletes its fp32 export after quantising, and the merge step
-is not a committed script.
+`merge_ensemble.py` prefixes each member's inputs and outputs (`m_`, `e_`) and
+renames their dynamic dimensions so the two tokenisers' sequence lengths do not
+clash. `fit_ensemble.py` fits the member and final temperatures and the
+abstention thresholds on the 1,000-row train holdout (`cal_ids.json`), never
+dev. Re-running `merge_ensemble.py` on the two members reproduces the served
+`artifacts/decide.onnx` exactly.
 
 ## 3. Abstention policy
 

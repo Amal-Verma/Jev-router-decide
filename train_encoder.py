@@ -288,6 +288,8 @@ def main():
     ap.add_argument("--no_export", action="store_true", help="skip ONNX export (CV runs)")
     ap.add_argument("--arch", default="moe", choices=["moe", "trunk", "linear"])
     ap.add_argument("--n_experts", type=int, default=4)
+    ap.add_argument("--keep_fp32", action="store_true",
+                    help="also keep decide_fp32.onnx (needed for Ettin, which int8 quantisation breaks)")
     ap.add_argument("--save_all_logits", action="store_true",
                     help="teacher mode: save logits for every training-file row (all_logits.npz, all_ids.json)")
     ap.add_argument("--teacher", default=None, help="dir with a teacher's all_logits.npz / all_ids.json")
@@ -434,12 +436,12 @@ def main():
     model = model.float().cpu().eval()
     tok.save_pretrained(os.path.join(args.out, "tok"))
     try:
-        export_onnx(model, tok, args.out, args.max_len)
+        export_onnx(model, tok, args.out, args.max_len, keep_fp32=args.keep_fp32)
     except Exception as e:                       # keep the logits even if export fails
         print("ONNX export failed:", type(e).__name__, str(e)[:300], flush=True)
 
 
-def export_onnx(model, tok, out, max_len):
+def export_onnx(model, tok, out, max_len, keep_fp32=False):
     from onnxruntime.quantization import QuantType, quantize_dynamic
 
     enc = tok(["a b c"], ["d e f"], return_tensors="pt")
@@ -457,7 +459,8 @@ def export_onnx(model, tok, out, max_len):
                       "route": {0: "b"}, "approve": {0: "b"}, "grounded": {0: "b"}},
         opset_version=17, **({"dynamo": False} if "dynamo" in torch.onnx.export.__code__.co_varnames else {}))
     quantize_dynamic(fp32, os.path.join(out, "decide.onnx"), weight_type=QuantType.QInt8)
-    os.remove(fp32)
+    if not keep_fp32:
+        os.remove(fp32)
     print("exported", os.path.join(out, "decide.onnx"), flush=True)
 
 
