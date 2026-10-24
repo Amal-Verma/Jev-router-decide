@@ -43,6 +43,25 @@ echo '{"subject":"Refund please","body":"Please refund $12.","customer_tier":"pr
 
 All three use the same `POST /v1/decide` schema.
 
+### Scoring a model on the dev split
+
+`selfcheck.py` (the judges' scoring code) needs `data/dev.jsonl`, which is not
+committed: put the provided `train.jsonl` and `dev.jsonl` in `data/`. Then, one
+model at a time:
+
+```bash
+# terminal 1: start the model (ensemble, minilm or ettin) and leave it running
+python serve.py --model ensemble --port 8000
+
+# terminal 2: score it on the full dev split (1,500 tickets x 3 decisions, about 2 minutes)
+python selfcheck.py --url http://localhost:8000/v1/decide --json /tmp/dev_ensemble.json
+
+# stop the server with Ctrl+C, then repeat with --model minilm and --model ettin
+```
+
+Write to a scratch path as above, so the submitted `results.json` (the ensemble)
+is not overwritten. Latency depends on how busy the machine is.
+
 ## Architecture: where the sharing happens
 
 ```mermaid
@@ -228,6 +247,10 @@ less headroom than the single MiniLM model had. Full numbers are in
 ```
 app.py              HTTP layer (starter, unchanged)
 model.py            DecisionModel: policy (thresholds, abstention) over a backend
+serve.py            start the API with --model ensemble | minilm | ettin
+predict.py          answer a ticket in the terminal with any of the three models
+artifacts/          served ensemble (root), plus artifacts/minilm/ and artifacts/ettin/
+merge_ensemble.py   merge two member models into one ONNX graph
 decide/inputs.py    per-decision input framing for the shared encoder
 decide/tabular.py   approve features (tier x amount cuts, red flags)
 decide/features.py  duration normalisation ("two weeks" == "14 days")
