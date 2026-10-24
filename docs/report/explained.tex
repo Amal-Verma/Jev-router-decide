@@ -1,0 +1,302 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\usepackage{listings}
+\usepackage[hyphens]{url}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\setlist{nosep,leftmargin=1.4em}
+
+\definecolor{shared}{HTML}{DBEAFE}
+\definecolor{sharededge}{HTML}{1D4ED8}
+\definecolor{head}{HTML}{FEF3C7}
+\definecolor{headedge}{HTML}{B45309}
+\definecolor{io}{HTML}{F1F5F9}
+\definecolor{ioedge}{HTML}{475569}
+\definecolor{codebg}{HTML}{F8FAFC}
+\hypersetup{colorlinks=true,linkcolor=sharededge,urlcolor=sharededge}
+
+\lstset{basicstyle=\ttfamily\small,backgroundcolor=\color{codebg},frame=single,
+  rulecolor=\color{ioedge!40},breaklines=true,columns=fullflexible,keepspaces=true}
+
+\tikzset{
+  box/.style={draw=ioedge,fill=io,rounded corners=3pt,align=center,font=\small,inner sep=4pt,minimum height=9mm},
+  sbox/.style={draw=sharededge,fill=shared,rounded corners=3pt,align=center,font=\small,inner sep=4pt,minimum height=9mm},
+  hbox/.style={draw=headedge,fill=head,rounded corners=3pt,align=center,font=\small,inner sep=4pt,minimum height=9mm},
+  arr/.style={-{Stealth[length=2mm]},thick,draw=ioedge},
+}
+
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+
+\title{\textbf{Decide, explained from zero}\\[2pt]\large What it does, how it works, and how it was tested}
+\author{Amal Verma}
+\date{October 2026}
+
+\begin{document}
+\maketitle
+\noindent A plain-language guide to the project. Read this first if you are new to it.
+The technical write-up is in \texttt{report.pdf}.
+
+\section{The problem}
+Support software makes many small decisions on every ticket: which team should handle
+it, whether a refund can be auto-approved, and whether the drafted reply is backed by
+the help article. Many products ask a large LLM these questions. That is slow (0.3 to
+2\,s), costs money per call, and comes back with no usable confidence. The hackathon
+asks for a \textbf{small model} that answers these typed questions in one pass, on a
+CPU, in milliseconds, with an honest probability.
+
+\section{Input and output}
+You send one ticket and name \textbf{one} question:
+\begin{lstlisting}
+{ "request_id": "demo-1",
+  "decision": "approve",
+  "state": {
+    "subject": "Refund for last month",
+    "body": "Hi, I was charged $45.00 for a month I didn't use. Can you refund it?",
+    "customer_tier": "pro",
+    "amount": 45.0,
+    "draft_reply": "Refunds can be requested within 30 days of the charge, so I have put yours through...",
+    "kb_article": "Refunds may be requested within 30 days of the charge, and this applies to all plans..." } }
+\end{lstlisting}
+
+\noindent\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+Field & Meaning \\
+\midrule
+\texttt{subject}, \texttt{body} & what the customer wrote \\
+\texttt{customer\_tier} & free, pro or enterprise \\
+\texttt{amount} & money involved \\
+\texttt{draft\_reply} & a reply someone drafted \\
+\texttt{kb\_article} & the help article that reply should rely on (\textbf{given in the request}; we never search for it) \\
+\bottomrule
+\end{tabularx}
+
+\medskip
+\noindent The same ticket, asked all three questions (real output of the served model):
+
+\medskip
+\noindent\begin{tabularx}{\linewidth}{@{}lp{4.6cm}L@{}}
+\toprule
+Question & Output & Meaning \\
+\midrule
+\texttt{route} & \texttt{billing}, confidence 0.906, plus probabilities for all 5 queues & send to billing, 91\% sure \\
+\texttt{approve} & \texttt{true}, $p$ = 0.889, abstain false & auto-approve: pro tier, \$45 is under the about \$120 limit, no red flags \\
+\texttt{grounded} & \texttt{false}, $p$ = 0.026, abstain true & the draft says the refund is done; the article only says refunds \emph{may be requested} \\
+\bottomrule
+\end{tabularx}
+
+\medskip
+\noindent Every answer has \texttt{value} (the answer), \texttt{probs} or \texttt{p\_true}
+(the honest probability), \texttt{abstain} (true means ``let a human check'') and
+\texttt{latency\_ms}.
+
+\section{The rules that make it hard}
+\begin{enumerate}
+  \item \textbf{One model for all three questions}, sharing a backbone; not three models behind a switch.
+  \item \textbf{CPU only, no network} while answering.
+  \item \textbf{Fast}: p95 under 100\,ms; full marks at 25\,ms or less.
+  \item \textbf{Calibrated}: ``0.8'' must be right about 80\% of the time.
+  \item \textbf{Can abstain}, but must answer at least 80\%.
+  \item \textbf{Approve has a 3:1 cost}: a wrong approval costs 3 times a wrong hold.
+  \item \textbf{The approve rule is secret}: it must be learned from the labels, and part of it depends on account history the ticket never shows.
+\end{enumerate}
+
+\paragraph{Point 6: why approve uses 0.75, not 0.5.} At probability $p$ that the request
+is fine, approving costs $3(1-p)$ on average and holding costs $p$. They are equal at
+$3(1-p) = p$, so $p = 0.75$. The model approves only above 0.75. For example, at $p = 0.6$
+approving costs 1.2 and holding costs 0.6.
+
+\paragraph{Point 7: the rule recovered from the data.}
+\begin{center}
+\begin{tabular}{lc}
+\toprule
+Tier & usually auto-approved up to \\
+\midrule
+free & about \$30 \\
+pro & about \$120 \\
+enterprise & about \$500 \\
+\bottomrule
+\end{tabular}
+\end{center}
+Red flags force a hold at any amount: ``raised something similar'', ``signed up
+recently'', ``disputed a charge with my bank'', ``outside your usual policy\ldots{} an
+exception''. Even when everything looks fine, about 20\% of such tickets are still held
+because of hidden account history. The model says about 0.85 on those, which is honest.
+
+\section{How it is scored}
+Pass/fail first: valid schema on every response, p95 under 100\,ms, a model card, and no
+memorising dev. Then teams are ranked on a hidden test set:
+
+\medskip
+\noindent\begin{tabularx}{\linewidth}{@{}llL@{}}
+\toprule
+Axis & Weight & Meaning \\
+\midrule
+Quality & 40\% & right answers on the cases you answered (route and grounded macro-F1, approve 3:1 cost) \\
+Calibration & 25\% & half ECE (is 0.8 really 0.8?), half Brier skill (better than quoting the base rate?) \\
+Latency & 20\% & p95 per call; full marks at 25\,ms or less \\
+Abstention & 15\% & does your confidence point at your own mistakes? \\
+\bottomrule
+\end{tabularx}
+
+\section{The architecture, step by step}
+\begin{center}
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[node distance=4mm]
+  \node[box] (a) {request};
+  \node[box, right=of a] (b) {framing};
+  \node[box, right=of b] (c) {tokenizer};
+  \node[sbox, right=of c] (d) {encoder\\22.6\,M};
+  \node[sbox, right=of d] (e) {experts\\+ gate};
+  \node[hbox, right=of e] (f) {head};
+  \node[box, right=of f] (g) {calibration};
+  \node[box, right=of g] (h) {policy};
+  \node[box, right=of h] (i) {answer};
+  \foreach \x/\y in {a/b,b/c,c/d,d/e,e/f,f/g,g/h,h/i} \draw[arr] (\x) -- (\y);
+\end{tikzpicture}}
+\end{center}
+\noindent Blue parts are shared by all three questions; the amber head is per question.
+
+\begin{enumerate}
+  \item \textbf{Framing} (\texttt{decide/inputs.py}). Each question sees what it needs.
+        Route reads subject + body. Approve reads ``pro plan, amount \$45. subject'' + body,
+        plus 75 numbers (tier, amount above each cutoff, red flags). Grounded reads
+        kb\_article + draft\_reply side by side, plus 3 numbers (do the durations match?).
+  \item \textbf{Tokenizer.} Words become IDs from a 30{,}000-piece dictionary:
+        ``refunds'' becomes \texttt{ref}, \texttt{\#\#unds}.
+  \item \textbf{Encoder} (MiniLM, 6 Transformer layers, 22.6\,M weights). Every word
+        looks at every other word (attention), so meaning comes from context. The output
+        is averaged into one summary of 384 numbers. \textbf{Shared by all questions.}
+  \item \textbf{Mixture of experts} (4 expert layers + a gate, 0.5\,M weights). The gate
+        decides how much to trust each expert for this question. \textbf{Shared.}
+  \item \textbf{Head.} One tiny layer per question gives the raw score: route 5 scores
+        (1{,}285 weights), approve 1 score (257), grounded 1 score (257). This is the
+        only per-question part.
+  \item \textbf{Calibration.} Divide by a temperature (route 1.18, approve 1.01,
+        grounded 1.23), then softmax (route) or sigmoid (binary) to get honest probabilities.
+  \item \textbf{Policy} (\texttt{model.py}): commit to an answer and decide whether to
+        abstain (Section~\ref{sec:abstain}).
+\end{enumerate}
+\noindent\textbf{Size:} about 23.07\,M parameters, 99.99\% shared. That is about 18 times
+smaller than the 421\,M Laya model the brief mentions.
+
+\section{How \texttt{grounded} is calculated}
+Same article, three drafts, real numbers from the served model:
+
+\medskip
+\noindent\begin{tabularx}{\linewidth}{@{}Lrrp{4.8cm}@{}}
+\toprule
+Draft & Raw score & $p$ & Why \\
+\midrule
+``\ldots{} I have put yours through'', 30 days, 10 business days & $-4.47$ & 0.03 & claims the refund is approved; the article never says so \\
+faithful rewrite: 30 days, approved refunds, 10 business days & $+12.98$ & 1.00 & everything is supported \\
+faithful rewrite but ``60 days'' & $-2.10$ & 0.15 & wrong number \\
+\bottomrule
+\end{tabularx}
+
+\medskip
+\noindent For the first draft: $-4.47 \div 1.233 = -3.62$, and the sigmoid of $-3.62$ is
+0.026. The value is $0.026 > 0.5$, which is false. Abstain asks whether
+$\max(0.026, 0.974) < 0.975$, which is just true.
+
+\section{Abstention}\label{sec:abstain}
+Abstention is the model saying ``not sure, let a human decide''. It works in two separate
+ways:
+\begin{itemize}
+  \item \textbf{The \texttt{abstain} flag} sets what you are graded on. Abstained cases
+        leave the quality score, but answering under 80\% scales quality down. Ours answers
+        about 85\%.
+  \item \textbf{The abstention score} ignores the flag. Judges sort every case by your
+        confidence, keep the top 80\%, and compare the error there with the error overall.
+\end{itemize}
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Decision & error, all cases & error, most confident 80\% \\
+\midrule
+route & 10.9\% & 5.6\% \\
+approve & 9.9\% & 5.7\% \\
+grounded & 2.9\% & 0.7\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+Our abstention score is 0.56. It is capped by noisy labels and hidden account history:
+some mistakes look certain because nothing in the ticket reveals them.
+
+Thresholds (\texttt{artifacts/policy.json}): route abstains when its top probability is
+under 0.90; grounded when it is under 97.5\% sure either way; approve when
+$0.15 < p < 0.79$. That band is lopsided because risky approvals are the costly mistakes.
+
+\section{Training}
+\begin{enumerate}
+  \item 6{,}500 tickets from \texttt{train.jsonl}: 5{,}500 to train, 1{,}000 held out.
+        \textbf{Dev is never trained on.}
+  \item Each ticket becomes 3 training items (one per question), 16{,}500 in total.
+  \item Batches of 32 items from one question pass through the model. The error (loss)
+        is measured and all 23\,M weights are nudged to reduce it. Because the encoder is
+        shared, every question improves the same brain.
+  \item 5 passes over the data, about 3 minutes on a free Kaggle T4 GPU.
+  \item Temperatures and abstain thresholds are fitted on the 1{,}000 held-out tickets.
+  \item Export to ONNX and compress to int8.
+\end{enumerate}
+
+\section{fp32 against int8}
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+ & fp32 (32-bit) & int8 (8-bit, quantized) \\
+\midrule
+bytes per weight & 4 & 1 \\
+file size & about 92\,MB & \textbf{24\,MB} \\
+used for & training & \textbf{serving} (what the judges run) \\
+\bottomrule
+\end{tabular}
+\end{center}
+The fp32 export is deleted after compression; only int8 ships. Which tests used which:
+\begin{itemize}
+  \item \textbf{int8} (the served model): the official dev score 83.75, latency, the
+        schema check and the demo.
+  \item \textbf{fp32} (predictions saved during GPU training): cross-validation, the
+        second split, and the backbone and policy experiments.
+\end{itemize}
+On the same dev split the two agree within about 0.4 points (83.38 fp32 against 83.75
+int8). Quality and calibration are essentially identical; abstention moves about 0.03.
+
+\section{Was it tested on other splits?}
+\begin{center}
+\noindent\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+Test & Result \\
+\midrule
+dev split (served model, never trained on dev) & \textbf{83.75} \\
+4-fold CV, shuffle A (evaluation-only models) & 82.56 $\pm$ 1.28 (folds 83.1 / 82.9 / 83.9 / 80.5) \\
+4-fold CV, shuffle B (stopped early; accuracy only) & route 0.885 to 0.895, approve 0.894 to 0.909, grounded 0.973 to 0.977 \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Dev sits inside the fold range, and a second shuffle gives the same accuracy. The
+expected hidden-test score is about 82 to 84. Most of the spread comes from approve, the
+noisiest label.
+
+\section{Key decisions}
+\noindent\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+Decision & Why \\
+\midrule
+small H384 encoder over the larger H768 & H768 grounds slightly better but is about 1.7 times slower, which risks the latency score \\
+never train on dev & keeps dev scores honest and respects the ``no memorising dev'' rule \\
+lopsided approve abstention band & a wrong approval costs 3 times a wrong hold \\
+5 epochs, 85\% coverage target & best and safest settings in cross-validation \\
+\bottomrule
+\end{tabularx}
+
+\end{document}
