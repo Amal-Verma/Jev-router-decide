@@ -137,6 +137,7 @@ one decision does not pay for that.
 
 - `docs/EXPLAINED.md` (also as `docs/report/explained.pdf`): **start here**, a plain-language guide from the problem to every number
 - `docs/EXPERIMENTS.md` (also `docs/report/experiments.pdf`): every approach tried and its measured score
+- `docs/presentation/decide.pptx`: 7-slide plain deck for the 3-minute demo, with speaker notes
 - `docs/report/report.pdf`: 4-page technical report (LaTeX source alongside)
 - `docs/ARCHITECTURE.md`: diagrams of the model, request path, training and policy
 - `docs/API.md`: request and response reference
