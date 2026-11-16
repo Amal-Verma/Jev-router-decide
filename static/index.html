@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f5f3ec">
+  <title>Decide — the decision workbench</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%23284c43'/%3E%3Cpath d='m11 21 6 6 13-15' fill='none' stroke='%23f5f3ec' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Decide home"><span class="brand-mark" aria-hidden="true">d.</span><span>decide<span class="brand-period">.</span></span></a>
+      <div class="topbar-right"><span class="topbar-label">THE DECISION WORKBENCH</span><span id="service-status" class="service-status" role="status"><span class="status-dot"></span>Connecting</span></div>
+    </header>
+    <main>
+      <section class="introduction" aria-labelledby="page-title">
+        <div class="intro-copy"><div class="eyebrow"><span class="eyebrow-line"></span> SMALL MODEL. CLEAR DECISIONS.</div><h1 id="page-title">A little less guessing.<br>A lot more <em>knowing.</em></h1><p>One support request. Three considered decisions.<br>See the answer, the confidence, and when to bring in a human.</p></div>
+        <div class="intro-aside"><div class="flow-glyph" aria-hidden="true"><span>01</span><i></i><span>03</span></div><p>One shared model<br><strong id="model-name">Three points of clarity</strong></p><div class="local-badge"><span class="tiny-square"></span> CPU inference · no external calls</div></div>
+      </section>
+      <section class="workbench" aria-label="Interactive decision workbench">
+        <div class="request-panel">
+          <div class="panel-heading"><div><div class="eyebrow">01 / THE INPUT</div><h2>Start with a request.</h2></div><span class="panel-label">EDITABLE</span></div>
+          <div class="example-strip"><span>TRY A SCENARIO</span><div class="example-buttons" role="group" aria-label="Example support requests"><button type="button" class="example-button active" data-example="refund" aria-pressed="true">Refund</button><button type="button" class="example-button" data-example="account" aria-pressed="false">Account access</button><button type="button" class="example-button" data-example="uncertain" aria-pressed="false">Mixed request</button></div></div>
+          <form id="request-form">
+            <div class="field"><label for="subject">Subject</label><input id="subject" name="subject" maxlength="2000" required></div>
+            <div class="field"><label for="body">Customer message</label><textarea id="body" name="body" rows="4" maxlength="20000" required></textarea></div>
+            <div class="field-row"><div class="field"><label for="customer-tier">Customer tier</label><select id="customer-tier" name="customer_tier"><option value="free">Free</option><option value="pro">Pro</option><option value="enterprise">Enterprise</option></select></div><div class="field"><label for="amount">Amount <span class="field-unit">USD</span></label><div class="amount-input"><span aria-hidden="true">$</span><input id="amount" name="amount" type="number" min="0" max="1000000000" step="0.01" required></div></div></div>
+            <details class="context-details" open><summary><span>Reply &amp; supporting knowledge</span><span class="details-icon" aria-hidden="true">+</span></summary><div class="details-content"><div class="field"><label for="draft-reply">Draft reply</label><textarea id="draft-reply" name="draft_reply" rows="3" maxlength="20000"></textarea></div><div class="field"><label for="kb-article">Knowledge-base article</label><textarea id="kb-article" name="kb_article" rows="3" maxlength="20000"></textarea></div></div></details>
+            <div class="submit-row"><button type="submit" id="run-button" class="run-button"><span class="button-label">Make the decisions</span><span class="button-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></span></button><span class="keyboard-hint">Ctrl / ⌘ + Enter</span></div>
+          </form>
+          <p id="request-error" class="error-message" role="alert" hidden></p>
+          <div class="request-footnote"><span class="tiny-square"></span>Your request stays with this local service.</div>
+        </div>
+        <div class="response-panel" aria-labelledby="results-heading">
+          <div class="panel-heading response-heading"><div><div class="eyebrow">02 / THE DECISIONS</div><h2 id="results-heading">Clarity, with context.</h2></div><span id="results-status" class="panel-label">READY WHEN YOU ARE</span></div>
+          <div id="results" class="results" aria-live="polite" aria-busy="false">
+            <article class="decision-card route-card" id="route-card"><div class="card-topline"><span class="card-number">01</span><h3>Find the right team</h3><span class="card-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></span></div><div class="card-output"><span class="empty-answer">A place to begin.</span></div><p class="decision-description">Route to billing, technical, account, shipping, or general.</p><div class="route-bars" aria-label="Queue probabilities"><div class="empty-bar"><span></span></div><div class="empty-bar short"><span></span></div><div class="empty-bar shorter"><span></span></div></div><div class="card-bottom"><span class="waiting-label">AWAITING A REQUEST</span><span class="card-latency">— ms</span></div></article>
+            <article class="decision-card" id="approve-card"><div class="card-topline"><span class="card-number">02</span><h3>Know when to approve</h3><span class="card-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 5 5L20 7"/></svg></span></div><div class="binary-output"><div><div class="card-output"><span class="empty-answer">A considered yes or no.</span></div><p class="decision-description">Approve the action, or keep a human in the loop.</p></div><div class="confidence-ring empty-ring"><span>—<small>CONFIDENCE</small></span></div></div><div class="card-bottom"><span class="waiting-label">AWAITING A REQUEST</span><span class="card-latency">— ms</span></div></article>
+            <article class="decision-card" id="grounded-card"><div class="card-topline"><span class="card-number">03</span><h3>Keep the reply grounded</h3><span class="card-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 7h14M5 12h10M5 17h14"/></svg></span></div><div class="binary-output"><div><div class="card-output"><span class="empty-answer">A reply you can stand behind.</span></div><p class="decision-description">Check whether the article supports the draft reply.</p></div><div class="confidence-ring empty-ring"><span>—<small>CONFIDENCE</small></span></div></div><div class="card-bottom"><span class="waiting-label">AWAITING A REQUEST</span><span class="card-latency">— ms</span></div></article>
+          </div>
+          <div class="response-note"><span class="note-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 4v10h14m-5-5 5 5-5 5"/></svg></span><p><strong>Confidence is part of the answer.</strong> When the model abstains, pass the case to a human. Review suggestions before taking action.</p></div>
+          <details id="raw-details" class="raw-details" hidden><summary>Inspect the API response <span aria-hidden="true">{ }</span></summary><div class="raw-toolbar"><span>POST /v1/decide · 3 requests</span><button id="copy-response" type="button">Copy JSON</button></div><pre id="raw-response" tabindex="0"></pre></details>
+        </div>
+      </section>
+      <section class="measurement-strip" aria-label="Model evaluation"><div class="measurement-heading"><span class="eyebrow">MEASURED, NOT ASSUMED</span><h2>Small footprint.<br>Visible performance.</h2></div><div class="measurement-item"><span class="measurement-value" id="metric-latency">—</span><span class="measurement-label">Latest mean inference</span><span class="measurement-detail">Across these three decisions</span></div><div class="measurement-item"><span class="measurement-value" id="metric-score">—</span><span class="measurement-label">Local dev score</span><span class="measurement-detail" id="metric-score-detail">Evaluation not loaded</span></div><div class="measurement-item"><span class="measurement-value">CPU</span><span class="measurement-label">Runs on your machine</span><span class="measurement-detail">No hosted model required</span></div></section>
+    </main>
+    <footer><span class="footer-brand">decide.</span><p>Fast enough to act. Honest enough to pause.</p><span>BUILT FOR CONSIDERED AUTOMATION</span></footer>
+  </div>
+</body>
+</html>

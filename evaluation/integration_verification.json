@@ -1,0 +1,40 @@
+{
+  "upstream_revision": "1559b331a2cffb5b94adf6484daa1b093d38dbfb",
+  "workbench_revision": "97ace9e4a8ba8b18762613276feaab9f8b0f70a3",
+  "non_latency_sections_identical": [
+    "gates",
+    "schema",
+    "quality",
+    "calibration",
+    "abstention"
+  ],
+  "artifact_sha256": {
+    "artifacts/calibration.json": "35a9f56f09f5f0efbc44382929bbe9c744d1b54e099f5b4021012b97b4186d6b",
+    "artifacts/decide.onnx": "cf5463ae1f78852ea98e6e817e10ae790dcf19e6e40527d6d73fe5363df9cb6f",
+    "artifacts/ensemble.json": "dac929adc62d86d3106c072c0557b6c2678ba5c104f82e240d991c2ec9d284e1",
+    "artifacts/policy.json": "fcce8a17a6e2e7a7dc7d7ebf12c81de3c58142a5a5a661408c16082aa24bc886",
+    "artifacts/ettin/calibration.json": "059b2b32722896e26a68bfd8fe7606733ee94a47a40f3a74b45e15ff1ed1b44f",
+    "artifacts/ettin/decide.onnx": "531f5f3bc1cd291d1c2511450fc2bd42dbe25eb2d7298ad20ccbbebe72aabaaf",
+    "artifacts/ettin/policy.json": "bc2b478a0e876e2320aab9282b44f8fc96539daea38843a726a9cde39d0dfc06",
+    "artifacts/minilm/calibration.json": "32ba934057b538568ba6466aff45039b4d502702af6671ab85fc25b74a0dbe39",
+    "artifacts/minilm/decide.onnx": "a2fdcf0365333a6c63dfb1abe73964a8dc617a2020daffda6b7d6fbf9706bbf0",
+    "artifacts/minilm/policy.json": "c085ac9817b5e62470adcd815490c3b44febe9681e3b0bef0c75437691574c26",
+    "artifacts/tok_e/tokenizer.json": "9ba7e2769ee8927f15f04be8cce1bf5ec0423d4f12d4529987998fd008a78695",
+    "artifacts/tok_e/tokenizer_config.json": "fb54f027372062b2ca52282efb04d178a8b57167a00cd8f4e816515823a2c016",
+    "artifacts/tok_m/tokenizer.json": "1df3266d8f29dd3afdf73a9ee31322104ff93f8575a6bae998be07284b792e89",
+    "artifacts/tok_m/tokenizer_config.json": "649e41f8cf1cb1b67acc193795ccaef07bcaa3c4e0fc7d286ba8255fab79cffa",
+    "artifacts/minilm/tok/tokenizer.json": "1df3266d8f29dd3afdf73a9ee31322104ff93f8575a6bae998be07284b792e89",
+    "artifacts/minilm/tok/tokenizer_config.json": "649e41f8cf1cb1b67acc193795ccaef07bcaa3c4e0fc7d286ba8255fab79cffa",
+    "artifacts/ettin/tok/tokenizer.json": "9ba7e2769ee8927f15f04be8cce1bf5ec0423d4f12d4529987998fd008a78695",
+    "artifacts/ettin/tok/tokenizer_config.json": "fb54f027372062b2ca52282efb04d178a8b57167a00cd8f4e816515823a2c016"
+  },
+  "versions": {
+    "python": "3.14.10",
+    "fastapi": "0.163.1",
+    "uvicorn": "0.54.0",
+    "numpy": "2.5.5",
+    "onnxruntime": "1.32.0",
+    "tokenizers": "0.23.3"
+  },
+  "scope": "Public dev split; local CPU host, not judges hardware or hidden test"
+}

@@ -13,18 +13,47 @@ pip install -r requirements.txt && uvicorn app:app --host 0.0.0.0 --port 8000 --
 ```
 
 The trained weights are committed in `artifacts/` (`decide.onnx` is 92 MB,
-and `artifacts/` holds only the served ensemble, about 93 MB), so there is nothing to download. Then, with `data/dev.jsonl` in place:
+and the root ensemble assets are about 93 MB; all three bundled models total about 193 MB), so there is nothing to download. Then, with `data/dev.jsonl` in place:
 
 ```bash
 python selfcheck.py --url http://localhost:8000/v1/decide
 ```
+
+## Local workbench and checks
+
+Open `http://127.0.0.1:8000/` after starting the service. The offline workbench lets you edit all six inputs, try support scenarios, inspect routing probabilities and binary confidence, see human-review deferrals, and copy the actual API responses. Fonts are bundled locally; the interface contains no emojis and supports reduced motion.
+
+For a local-only start with automatic virtual-environment setup:
+
+```bash
+./run.sh
+MODEL=minilm PORT=8001 ./run.sh
+```
+
+`MODEL` accepts the same ensemble/minilm/ettin choices as `serve.py`; `HOST` defaults to `127.0.0.1`. The original judging command above remains available.
+
+Install the test dependencies and run the contract/model checks:
+
+```bash
+pip install -r requirements-dev.txt
+python -m unittest discover -p 'test_*.py' -v
+python audit_data.py
+```
+
+The data audit needs the supplied JSONL files in `data/`; the tests do not. Missing ticket text causes routing/approval to abstain with uninformative probabilities. Missing reply/article evidence causes grounding to return `p_true=0.5` and abstain. Negative approval amounts also defer to a human. Non-finite API amounts return a JSON validation error. Complete supported requests retain the existing model and learned abstention policy.
+
+`GET /health` identifies the loaded model. `GET /v1/metrics` serves the actual ensemble `results.json`; single models use `evaluation/minilm.json` or `evaluation/ettin.json` if generated, otherwise return 404 so the UI never substitutes the ensemble score for another model. All reported latency is local; hidden-test and judges' hardware results remain unverified.
+
+Real-world suitability, observed challenge failures and next product additions are documented in [docs/REAL_WORLD_READINESS.md](docs/REAL_WORLD_READINESS.md). This is a supervised-pilot candidate; no autonomous real-world readiness is claimed.
+
+The comparison and integration rationale are in [docs/CONSOLIDATION.md](docs/CONSOLIDATION.md), with UI behavior in [docs/UI_DESIGN.md](docs/UI_DESIGN.md) and service details in [docs/SERVICE.md](docs/SERVICE.md).
 
 ## Running each model (optional CLI)
 
 The judges' command above serves the **ensemble** (the submission). The two
 single models are also committed under `artifacts/`, and either can be run:
 
-| Model | Weights | Dev score (full selfcheck) |
+| Model | Weights | Recorded dev score (original selfcheck) |
 |---|---|---|
 | **ensemble** (default, submitted) | `artifacts/` | 85.44 |
 | MiniLM + MoE | `artifacts/minilm/` | 83.75 |
@@ -186,7 +215,7 @@ Libraries: PyTorch (BSD-3), Transformers (Apache-2.0), ONNX Runtime (MIT),
 tokenizers (Apache-2.0), FastAPI (MIT), Uvicorn (BSD-3), scikit-learn (BSD-3),
 LightGBM (MIT).
 
-## Results (public dev split, full self-check)
+## Original model results (public dev split, full self-check)
 
 | | score |
 |---|---|
@@ -198,7 +227,7 @@ LightGBM (MIT).
 | Ettin-17m + MoE alone, fp32 | 84.68 (mean p95 12.7 ms, but approve coverage 0.790, under 80%) |
 | **MiniLM + Ettin-17m ensemble, Ettin fp32 (served, trained on train only)** | **85.44** |
 
-Served model, in detail (`results.json`): quality 0.858, calibration 0.869,
+Original served model, in detail (`evaluation/ensemble-recorded.json`): quality 0.858, calibration 0.869,
 latency 1.000, abstention 0.627. Route macro-F1 0.9471, approve cost 0.1786,
 grounded macro-F1 0.9983, mean ECE 0.0141, Brier skill 0.8086. Coverage: route
 0.838, approve 0.829, grounded 0.837. 4,500 of 4,500 responses valid.
@@ -209,13 +238,13 @@ against 82.57 ± 1.29 for MiniLM alone; Ettin alone averaged 81.85. So the
 ensemble is better and steadier, but the dev 85.44 is partly a favourable
 Ettin run. An honest hidden-test expectation is roughly 83 to 85.
 
-**Latency.** p95 in `results.json` is route 18.1, approve 19.8, grounded 23.3 ms
+**Original latency.** p95 in `evaluation/ensemble-recorded.json` is route 18.1, approve 19.8, grounded 23.3 ms
 (mean 20.4 ms), measured on a busy laptop (load average 3.5 to 4.5). A
 fresh-venv run of `scripts/verify_submission.sh` gave PASS, 85.44, mean p95
 23.0 ms under similar load, and a fresh-clone run (`--clone`) gave PASS, 85.44,
-4,500 of 4,500 valid, mean p95 23.8 ms. That is under the 25 ms full-marks line, but with
-less headroom than the single MiniLM model had. Full numbers are in
-`results.json`; accuracy, calibration and failure modes are in `model_card.md`.
+4,500 of 4,500 valid, mean p95 23.8 ms. These are the original measurements, retained in `evaluation/ensemble-recorded.json`; current merged measurements are in `results.json` and summarized in `docs/CONSOLIDATION.md`. The historical latency was under the 25 ms full-marks line, but with
+less headroom than the single MiniLM model had. Original numbers are in
+`evaluation/ensemble-recorded.json`; current integration numbers are in `results.json`; accuracy, calibration and failure modes are in `model_card.md`.
 
 ## Trade-offs we made
 
@@ -245,8 +274,13 @@ less headroom than the single MiniLM model had. Full numbers are in
 ## Layout
 
 ```
-app.py              HTTP layer (starter, unchanged)
+app.py              judging API, validation, health, metrics and optional workbench
 model.py            DecisionModel: policy (thresholds, abstention) over a backend
+static/             offline workbench, bundled fonts and accessible result displays
+run.sh              local virtual-environment setup and server launcher
+test_*.py           model/policy regressions and HTTP contract checks
+audit_data.py       supplied-data validation and exact duplicate audit
+evaluation/         historical comparison and integration reports
 serve.py            start the API with --model ensemble | minilm | ettin
 predict.py          answer a ticket in the terminal with any of the three models
 artifacts/          served ensemble (root), plus artifacts/minilm/ and artifacts/ettin/

@@ -1,0 +1,177 @@
+{
+  "train": {
+    "file": "train.jsonl",
+    "sha256": "c07529ddb653c1a7d0407bc5e7d60e65c7045d93bdc000d83b138a324ecdd4f8",
+    "bytes": 4815151,
+    "records": 6500,
+    "valid_json_records": 6500,
+    "schema_errors": {},
+    "missing_fields": {},
+    "null_fields": {},
+    "blank_text_fields": {},
+    "labels": {
+      "route": {
+        "account": 1324,
+        "billing": 1829,
+        "general": 808,
+        "shipping": 998,
+        "technical": 1541
+      },
+      "approve": {
+        "false": 4047,
+        "true": 2453
+      },
+      "grounded": {
+        "false": 2613,
+        "true": 3887
+      }
+    },
+    "customer_tiers": {
+      "enterprise": 1087,
+      "free": 2945,
+      "pro": 2468
+    },
+    "amount": {
+      "min": 0.0,
+      "max": 1996.72,
+      "zero_count": 1272
+    },
+    "text_lengths": {
+      "subject": {
+        "min": 6,
+        "max": 73
+      },
+      "body": {
+        "min": 39,
+        "max": 421
+      },
+      "customer_tier": {
+        "min": 3,
+        "max": 10
+      },
+      "draft_reply": {
+        "min": 89,
+        "max": 253
+      },
+      "kb_article": {
+        "min": 141,
+        "max": 248
+      }
+    },
+    "request_ids": {
+      "unique_values": 6500,
+      "duplicate_groups": 0,
+      "records_in_duplicate_groups": 0,
+      "extra_duplicate_records": 0
+    },
+    "content_without_request_id": {
+      "unique_values": 6500,
+      "duplicate_groups": 0,
+      "records_in_duplicate_groups": 0,
+      "extra_duplicate_records": 0
+    },
+    "state_only": {
+      "unique_values": 6500,
+      "duplicate_groups": 0,
+      "records_in_duplicate_groups": 0,
+      "extra_duplicate_records": 0
+    },
+    "identical_states_with_conflicting_labels": 0
+  },
+  "dev": {
+    "file": "dev.jsonl",
+    "sha256": "dbf9de97f573428e3e3c2da9485086ded0355586a05b9ecdfa49e0ec6e66d330",
+    "bytes": 1114679,
+    "records": 1500,
+    "valid_json_records": 1500,
+    "schema_errors": {},
+    "missing_fields": {},
+    "null_fields": {},
+    "blank_text_fields": {},
+    "labels": {
+      "route": {
+        "account": 298,
+        "billing": 395,
+        "general": 220,
+        "shipping": 233,
+        "technical": 354
+      },
+      "approve": {
+        "false": 881,
+        "true": 619
+      },
+      "grounded": {
+        "false": 565,
+        "true": 935
+      }
+    },
+    "customer_tiers": {
+      "enterprise": 252,
+      "free": 654,
+      "pro": 594
+    },
+    "amount": {
+      "min": 0.0,
+      "max": 1998.96,
+      "zero_count": 300
+    },
+    "text_lengths": {
+      "subject": {
+        "min": 6,
+        "max": 71
+      },
+      "body": {
+        "min": 42,
+        "max": 365
+      },
+      "customer_tier": {
+        "min": 3,
+        "max": 10
+      },
+      "draft_reply": {
+        "min": 89,
+        "max": 242
+      },
+      "kb_article": {
+        "min": 141,
+        "max": 248
+      }
+    },
+    "request_ids": {
+      "unique_values": 1500,
+      "duplicate_groups": 0,
+      "records_in_duplicate_groups": 0,
+      "extra_duplicate_records": 0
+    },
+    "content_without_request_id": {
+      "unique_values": 1500,
+      "duplicate_groups": 0,
+      "records_in_duplicate_groups": 0,
+      "extra_duplicate_records": 0
+    },
+    "state_only": {
+      "unique_values": 1500,
+      "duplicate_groups": 0,
+      "records_in_duplicate_groups": 0,
+      "extra_duplicate_records": 0
+    },
+    "identical_states_with_conflicting_labels": 0
+  },
+  "cross_split_overlap": {
+    "request_ids": {
+      "shared_unique_values": 0,
+      "train_records_matching_dev": 0,
+      "dev_records_matching_train": 0
+    },
+    "content_without_request_id": {
+      "shared_unique_values": 0,
+      "train_records_matching_dev": 0,
+      "dev_records_matching_train": 0
+    },
+    "state_only": {
+      "shared_unique_values": 0,
+      "train_records_matching_dev": 0,
+      "dev_records_matching_train": 0
+    }
+  }
+}

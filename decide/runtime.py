@@ -72,7 +72,11 @@ class EncoderBackend:
 
     def _binary(self, task, s):
         z = float(self._logits(task, s)) / self.temp[task]
-        p = 1.0 / (1.0 + math.exp(-z))
+        if z >= 0:
+            p = 1.0 / (1.0 + math.exp(-z))
+        else:
+            exponential = math.exp(z)
+            p = exponential / (1.0 + exponential)
         if task in self.maps:
             p = float(np.interp(p, *self.maps[task]))
         return p
