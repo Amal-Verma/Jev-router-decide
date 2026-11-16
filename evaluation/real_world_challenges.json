@@ -1,0 +1,53 @@
+{
+  "scope": "Four hand-written illustrative challenge cases; not a representative benchmark or a training/tuning dataset. Expected labels are human judgments documented with rationale.",
+  "cases": [
+    {
+      "name": "Unsupported completed refund",
+      "kb_article": "Refunds may be requested within 30 days of a charge. This applies to all plans. Approved refunds are returned to the original payment method and typically settle within 5 business days.",
+      "draft_reply": "I have processed your refund. The money will reach your original payment method within 5 business days.",
+      "expected_supported": false,
+      "reason": "The policy describes eligibility and settlement, but contains no evidence that a refund was executed.",
+      "observed": {
+        "value": true,
+        "p_true": 0.9988038066930989,
+        "abstain": false
+      }
+    },
+    {
+      "name": "Incorrect plan restriction",
+      "kb_article": "Refunds may be requested within 30 days of a charge. This applies to all plans.",
+      "draft_reply": "Only enterprise customers can request a refund within 30 days of the charge.",
+      "expected_supported": false,
+      "reason": "The reply excludes free and pro customers despite the article explicitly covering all plans.",
+      "observed": {
+        "value": true,
+        "p_true": 0.6304053891354225,
+        "abstain": true
+      }
+    },
+    {
+      "name": "Incorrect deadline",
+      "kb_article": "Customers may request a refund within 14 days of the charge.",
+      "draft_reply": "Customers may request a refund within 30 days of the charge.",
+      "expected_supported": false,
+      "reason": "The request window is different.",
+      "observed": {
+        "value": false,
+        "p_true": 0.008077339468084824,
+        "abstain": true
+      }
+    },
+    {
+      "name": "Supported policy paraphrase",
+      "kb_article": "Customers may request a refund within 14 days of the charge.",
+      "draft_reply": "You can ask for a refund within two weeks of the charge.",
+      "expected_supported": true,
+      "reason": "The draft restates the policy without claiming an action happened.",
+      "observed": {
+        "value": true,
+        "p_true": 0.8439562734758829,
+        "abstain": true
+      }
+    }
+  ]
+}

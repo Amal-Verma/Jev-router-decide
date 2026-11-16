@@ -43,3 +43,12 @@ Binary (`approve`, `grounded`): `p_true` is the calibrated probability of "yes".
 - `abstain: true` means "send to a human". The probabilities are still honest.
 
 `GET /health` returns `{"status": "ok", "loaded": true}` once the model is in memory.
+
+
+## Workbench and validation
+
+`GET /` serves the optional offline workbench and `GET /static/...` its assets. The judging endpoint remains `POST /v1/decide` with the response schema above.
+
+`GET /health` additionally returns public model metadata, including its name, ONNX graph size and policy thresholds. `GET /v1/metrics` returns the actual report for the selected model (`results.json` for the ensemble; `evaluation/minilm.json` or `evaluation/ettin.json` for single models). It returns 404 if that model has no saved report.
+
+Null text fields become empty strings and null amount becomes zero. Non-finite amounts are rejected with JSON 422 errors. With no ticket text, route abstains with a uniform queue distribution and approve abstains with `p_true=0.5`. Grounding abstains with `p_true=0.5` if either the article or reply is blank. Negative approval amounts also defer with `p_true=0.5`. These guards do not change normal complete-input predictions.

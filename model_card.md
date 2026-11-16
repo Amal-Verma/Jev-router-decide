@@ -4,7 +4,7 @@
 customer-support request: `route` (5 queues), `approve` (can it be
 auto-approved), `grounded` (is the draft reply supported by the KB article). It
 serves on CPU behind `POST /v1/decide` as one ONNX graph (`artifacts/decide.onnx`,
-92 MB; `artifacts/` holds only the served ensemble, about 93 MB), computed with one `session.run` per request.
+92 MB; root ensemble assets about 93 MB, all bundled model choices about 193 MB), computed with one `session.run` per request.
 
 **Architecture.** An ensemble of two complete shared models, merged into that
 one graph. Each member answers all three decisions with a shared encoder, a
@@ -41,7 +41,7 @@ temperature per member and decision (MiniLM route 1.17, approve 1.03, grounded
 1.22; Ettin 1.27, 1.36, 1.15), then one final temperature on the averaged logit
 (route 1.00, approve 0.96, grounded 0.84).
 
-**Public dev split** (`results.json`, full self-check, 1,500 records x 3
+**Public dev split** (`evaluation/ensemble-recorded.json`, original full self-check, 1,500 records x 3
 decisions): **85.44 / 100**. Quality 0.858, calibration 0.869, latency 1.000,
 abstention 0.627. Route macro-F1 0.9471, approve cost 0.1786 (always-hold
 0.366), grounded macro-F1 0.9983, mean ECE 0.0141, Brier skill 0.8086. Coverage
@@ -90,3 +90,6 @@ It commits to "approve" only when `p_true > 0.75` (the 3:1 Bayes threshold).
   tiers will degrade it, and the amount features assume USD-scale values.
 - *Latency:* the ensemble is about twice as slow as one member, so a heavily
   loaded host can push p95 past 25 ms.
+
+
+**Workbench integration (2026-11-16).** Trained graphs, tokenizers, calibration and learned policies are retained unchanged. The added interface calls the same decision API. Empty ticket text, absent grounding evidence and negative approval amounts defer to a human with uninformative probabilities; valid complete inputs retain the existing learned outputs. API validation rejects non-finite amounts and invalid model probabilities. Current merged evaluation is in `results.json`; the original report is retained separately, so environment/timing differences are visible. See `docs/CONSOLIDATION.md` for the before/after comparison.
