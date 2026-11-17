@@ -131,16 +131,25 @@ async function runDecisions(event) {
   document.getElementById('results-status').textContent = 'MODEL AT WORK';
   errorMessage.hidden = true;
   const state = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, key === 'amount' ? Number(field.value) : field.value]));
+  const userSelector = document.getElementById('user-selector');
+  const activeUserId = userSelector ? userSelector.value : 'standard_user';
   const batchId = globalThis.crypto?.randomUUID?.() || `request-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const responses = {};
   try {
     for (const decision of ['route', 'approve', 'grounded']) {
       const requestId = `${batchId}-${decision}`;
       const response = await fetch('/v1/decide', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
+        method: 'POST', headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': activeUserId
+        },
         body: JSON.stringify({request_id: requestId, decision, state}), signal: AbortSignal.timeout(20000)
       });
-      if (!response.ok) throw new Error(`The service returned HTTP ${response.status}. Check that the model is loaded, then try again.`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const detailMsg = errorData.detail || `HTTP ${response.status}`;
+        throw new Error(`The service returned ${detailMsg}. Check user tier or model status.`);
+      }
       const body = await response.json();
       if (!validResponse(body, decision) || body.request_id !== requestId) throw new Error('The service returned an unexpected response. Please check the server output.');
       responses[decision] = body;
@@ -153,6 +162,22 @@ async function runDecisions(event) {
     document.getElementById('results-status').textContent = revision === inputRevision ? 'THREE DECISIONS, MADE' : 'INPUT CHANGED · RUN AGAIN';
     document.getElementById('raw-response').textContent = JSON.stringify(responses, null, 2);
     document.getElementById('raw-details').hidden = false;
+
+    // Display Integrity & Reputation feedback banner
+    const integrityBanner = document.getElementById('integrity-banner');
+    const integrityBadge = document.getElementById('integrity-badge');
+    const integritySummary = document.getElementById('integrity-summary');
+    if (integrityBanner && responses.grounded?.integrity) {
+      const intInfo = responses.grounded.integrity;
+      const totalDelta = Object.values(responses).reduce((sum, r) => sum + (r.integrity?.reputation_delta || 0), 0);
+      const isPositive = totalDelta > 0;
+      integrityBadge.textContent = `${isPositive ? '+' : ''}${totalDelta.toFixed(2)} ${isPositive ? 'Truth Reward' : (totalDelta < 0 ? 'Penalty' : 'Neutral')}`;
+      integrityBadge.className = `integrity-tag ${isPositive ? 'positive' : (totalDelta < 0 ? 'negative' : 'neutral')}`;
+      integritySummary.textContent = `${intInfo.user_tier} · Rep: ${intInfo.current_reputation.toFixed(1)}/100 · ${intInfo.evaluation.replace(/_/g, ' ')}`;
+      integrityBanner.hidden = false;
+    }
+
+    await refreshUserReputation();
     await updateHealth();
   } catch (error) {
     errorMessage.textContent = error.name === 'TimeoutError' || error.name === 'AbortError' ? 'The request took too long. Check the local service and try again.' : error instanceof TypeError ? 'Could not reach the local service. Start the server and try again.' : error.message;
@@ -195,6 +220,47 @@ async function loadMetrics() {
   } catch {}
 }
 
+async function refreshUserReputation() {
+  const userSelector = document.getElementById('user-selector');
+  const badge = document.getElementById('reputation-badge');
+  if (!userSelector || !badge) return;
+  const userId = userSelector.value;
+  try {
+    const res = await fetch(`/v1/reputation/${userId}`);
+    if (res.ok) {
+      const data = await res.json();
+      badge.textContent = `Rep: ${data.reputation.toFixed(1)} · ${data.tier}`;
+      badge.className = `reputation-badge tier-${data.tier.toLowerCase().replace(/\s+/g, '-')}`;
+    }
+  } catch {}
+}
+
+const userSelectorEl = document.getElementById('user-selector');
+if (userSelectorEl) {
+  userSelectorEl.addEventListener('change', () => {
+    refreshUserReputation();
+    const banner = document.getElementById('integrity-banner');
+    if (banner) banner.hidden = true;
+  });
+}
+
+const resetRepBtn = document.getElementById('reset-rep-btn');
+if (resetRepBtn) {
+  resetRepBtn.addEventListener('click', async () => {
+    const userId = userSelectorEl ? userSelectorEl.value : 'standard_user';
+    try {
+      await fetch('/v1/reputation/reset', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({user_id: userId})
+      });
+      await refreshUserReputation();
+      const banner = document.getElementById('integrity-banner');
+      if (banner) banner.hidden = true;
+    } catch {}
+  });
+}
+
 document.querySelectorAll('.example-button').forEach(button => button.addEventListener('click', () => setExample(button.dataset.example)));
 form.addEventListener('submit', runDecisions);
 form.addEventListener('input', () => {
@@ -222,3 +288,4 @@ document.getElementById('copy-response').addEventListener('click', async event =
 setExample('refund');
 updateHealth();
 loadMetrics();
+refreshUserReputation();

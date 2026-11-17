@@ -23,6 +23,20 @@
       <section class="workbench" aria-label="Interactive decision workbench">
         <div class="request-panel">
           <div class="panel-heading"><div><div class="eyebrow">01 / THE INPUT</div><h2>Start with a request.</h2></div><span class="panel-label">EDITABLE</span></div>
+          <div class="user-strip">
+            <div class="user-strip-top">
+              <span class="user-strip-label">ACTIVE CALLER / AGENT</span>
+              <span id="reputation-badge" class="reputation-badge">Rep: 50.0 · Probationary</span>
+            </div>
+            <div class="user-controls">
+              <select id="user-selector" aria-label="Select active user identity">
+                <option value="champion_agent">Champion Agent (Honest · High Rep)</option>
+                <option value="standard_user" selected>Standard User (Default · 50.0 Rep)</option>
+                <option value="suspicious_bot">Suspicious Bot (High Risk · Monitored)</option>
+              </select>
+              <button type="button" id="reset-rep-btn" class="reset-rep-btn" title="Reset reputation for this user">Reset</button>
+            </div>
+          </div>
           <div class="example-strip"><span>TRY A SCENARIO</span><div class="example-buttons" role="group" aria-label="Example support requests"><button type="button" class="example-button active" data-example="refund" aria-pressed="true">Refund</button><button type="button" class="example-button" data-example="account" aria-pressed="false">Account access</button><button type="button" class="example-button" data-example="uncertain" aria-pressed="false">Mixed request</button></div></div>
           <form id="request-form">
             <div class="field"><label for="subject">Subject</label><input id="subject" name="subject" maxlength="2000" required></div>
@@ -36,6 +50,10 @@
         </div>
         <div class="response-panel" aria-labelledby="results-heading">
           <div class="panel-heading response-heading"><div><div class="eyebrow">02 / THE DECISIONS</div><h2 id="results-heading">Clarity, with context.</h2></div><span id="results-status" class="panel-label">READY WHEN YOU ARE</span></div>
+          <div id="integrity-banner" class="integrity-banner" hidden>
+            <div class="integrity-tag" id="integrity-badge">+0.00 Neutral</div>
+            <span id="integrity-summary" class="integrity-summary">Evaluated from calibrated confidence</span>
+          </div>
           <div id="results" class="results" aria-live="polite" aria-busy="false">
             <article class="decision-card route-card" id="route-card"><div class="card-topline"><span class="card-number">01</span><h3>Find the right team</h3><span class="card-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></span></div><div class="card-output"><span class="empty-answer">A place to begin.</span></div><p class="decision-description">Route to billing, technical, account, shipping, or general.</p><div class="route-bars" aria-label="Queue probabilities"><div class="empty-bar"><span></span></div><div class="empty-bar short"><span></span></div><div class="empty-bar shorter"><span></span></div></div><div class="card-bottom"><span class="waiting-label">AWAITING A REQUEST</span><span class="card-latency">— ms</span></div></article>
             <article class="decision-card" id="approve-card"><div class="card-topline"><span class="card-number">02</span><h3>Know when to approve</h3><span class="card-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 5 5L20 7"/></svg></span></div><div class="binary-output"><div><div class="card-output"><span class="empty-answer">A considered yes or no.</span></div><p class="decision-description">Approve the action, or keep a human in the loop.</p></div><div class="confidence-ring empty-ring"><span>—<small>CONFIDENCE</small></span></div></div><div class="card-bottom"><span class="waiting-label">AWAITING A REQUEST</span><span class="card-latency">— ms</span></div></article>

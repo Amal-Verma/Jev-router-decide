@@ -12,6 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 from model import QUEUES, DecisionModel
+from decide.reputation import ReputationLedger, UserProfile, TIERS
+LEDGER = ReputationLedger()
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -102,10 +104,19 @@ def metrics() -> FileResponse:
 
 
 @app.post("/v1/decide")
-def decide(req: DecideRequest) -> JSONResponse:
+def decide(req: DecideRequest, request: Request) -> JSONResponse:
     if MODEL is None:
         raise HTTPException(status_code=503, detail="The model is not loaded.")
     started_at = time.perf_counter()
+
+    user_id = request.headers.get("X-User-ID") or request.query_params.get("user_id")
+    if user_id:
+        user = LEDGER.get_or_create(user_id)
+        if user.tier == "Suspended":
+            raise HTTPException(status_code=403, detail="Account suspended due to repeated integrity violations.")
+        if user.tier == "Quarantine":
+            time.sleep(1.5)
+
     state = req.state.model_dump()
 
     if req.decision == "route":
@@ -141,4 +152,62 @@ def decide(req: DecideRequest) -> JSONResponse:
     body["request_id"] = req.request_id
     body["decision"] = req.decision
     body["latency_ms"] = round((time.perf_counter() - started_at) * 1000.0, 3)
+
+    if user_id:
+        integrity_info = LEDGER.record_decision(user_id, req.decision, body, state)
+    else:
+        signal, evaluation = LEDGER.calculate_signal(req.decision, body, state)
+        integrity_info = {
+            "signal": round(signal, 3),
+            "evaluation": evaluation,
+            "reputation_delta": 0.0,
+            "current_reputation": 50.0,
+            "user_tier": "Guest / Benchmark",
+            "truthful_count": 0,
+            "violation_count": 0,
+        }
+    body["integrity"] = integrity_info
+
     return JSONResponse(body)
+
+
+@app.get("/v1/reputation")
+def list_reputation() -> Dict[str, Any]:
+    users_summary = [
+        {
+            "user_id": u.user_id,
+            "reputation": round(u.reputation, 2),
+            "tier": u.tier,
+            "total_requests": u.total_requests,
+            "truthful_count": u.truthful_count,
+            "violation_count": u.violation_count,
+        }
+        for u in sorted(LEDGER.users.values(), key=lambda x: x.reputation, reverse=True)
+    ]
+    return {
+        "total_tracked_users": len(LEDGER.users),
+        "users": users_summary,
+        "tiers": TIERS,
+    }
+
+
+@app.get("/v1/reputation/{user_id}")
+def get_user_reputation(user_id: str) -> Dict[str, Any]:
+    user = LEDGER.get_or_create(user_id)
+    return {
+        "user_id": user.user_id,
+        "reputation": round(user.reputation, 2),
+        "tier": user.tier,
+        "total_requests": user.total_requests,
+        "truthful_count": user.truthful_count,
+        "violation_count": user.violation_count,
+        "quota_remaining": user.quota_remaining,
+    }
+
+
+@app.post("/v1/reputation/reset")
+def reset_user_reputation(payload: Dict[str, str]) -> Dict[str, Any]:
+    user_id = payload.get("user_id", "default_agent")
+    if user_id in LEDGER.users:
+        LEDGER.users[user_id] = UserProfile(user_id=user_id)
+    return {"status": "reset", "user_id": user_id, "reputation": 50.0, "tier": "Probationary"}
