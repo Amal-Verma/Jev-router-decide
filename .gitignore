@@ -21,6 +21,7 @@ kaggle/art_*/
 docs/report/*.aux
 docs/report/*.log
 docs/report/*.out
+docs/report/*.toc
 docs/report/*.fls
 docs/report/*.fdb_latexmk
 docs/report/pg*.png
